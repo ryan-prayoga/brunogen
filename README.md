@@ -1,8 +1,12 @@
 # brunogen
 
+[![CI](https://github.com/ryan-prayoga/brunogen/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ryan-prayoga/brunogen/actions/workflows/ci.yml)
+
 Brunogen scans a Laravel or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
 
 Early public alpha. Laravel is the primary happy path today. Go support exists, but remains experimental and heuristic.
+
+CI runs `npm run verify` on pushes to `main` and on pull requests. That includes the Laravel golden snapshot test for the checked-in demo path.
 
 ## Install
 
