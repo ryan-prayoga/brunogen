@@ -24,6 +24,7 @@ npm run verify
 npm run typecheck
 npm test
 npm run build
+npm run demo:laravel
 npm run verify
 node dist/cli.js --help
 ```
@@ -31,3 +32,4 @@ node dist/cli.js --help
 ## Canonical demo path
 
 The Laravel fixture in `tests/fixtures/laravel` is the current happy path demo and should stay healthy.
+If you intentionally change generated demo output, refresh the checked-in snapshots with `npm run demo:laravel`.

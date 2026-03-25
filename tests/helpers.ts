@@ -3,3 +3,7 @@ import path from "node:path";
 export function fixturePath(...segments: string[]): string {
   return path.join(__dirname, "fixtures", ...segments);
 }
+
+export function repoPath(...segments: string[]): string {
+  return path.join(__dirname, "..", ...segments);
+}
