@@ -1,0 +1,55 @@
+openapi: 3.1.0
+paths:
+  /api/users:
+    post:
+      operationId: usercontrollerStore
+      summary: UserController::store
+      tags:
+        - User
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  maxLength: 255
+                  type: string
+                email:
+                  format: email
+                  type: string
+                age:
+                  nullable: true
+                  minimum: 18
+                  type: integer
+              required:
+                - name
+                - email
+      responses:
+        "201":
+          description: Inferred JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      email:
+                        type: string
+              example:
+                message: User created
+                data:
+                  id: 1
+                  name: Jane Doe
+                  email: jane@example.com
+      security:
+        - bearerAuth: []

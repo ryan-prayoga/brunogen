@@ -1,53 +1,59 @@
 # brunogen
 
-Generate Bruno collections from Laravel and Go API source code.
+Brunogen scans a Laravel or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
 
-Pipeline:
-
-```text
-source code -> framework adapter -> normalized endpoint model -> openapi.yaml -> bruno collection
-```
-
-## Supported frameworks
-
-- Laravel
-- Go Fiber
-- Go Gin
-- Go Echo
+Early public alpha. Laravel is the primary happy path today. Go support exists, but remains experimental and heuristic.
 
 ## Install
-
-From npm:
 
 ```bash
 npm i -g brunogen
 ```
 
-From GitHub Packages:
+## How It Works
 
-```bash
-npm i -g @ryan-prayoga/brunogen --registry=https://npm.pkg.github.com
+```text
+source code
+  -> framework adapter
+  -> normalized endpoint model
+  -> openapi.yaml
+  -> Bruno collection
 ```
 
-From GitHub:
+OpenAPI is the internal source of truth after scanning. Bruno is the output target.
+
+## Works Today
+
+- Global CLI with `init`, `generate`, `watch`, `validate`, and `doctor`
+- Laravel route scanning from `routes/*.php`
+- Laravel route groups, prefixes, middleware-based auth hints, and `apiResource` expansion
+- Laravel request schema inference from FormRequest rules and simple inline validation
+- Bruno collection generation with environment files and baseline bearer/basic/api-key auth support
+- OpenAPI generation and validation before export
+- Go Gin, Fiber, and Echo scanning in experimental mode
+
+## Laravel-First Quickstart
+
+The current canonical happy path is the minimal Laravel fixture in `tests/fixtures/laravel`.
+Curated generated snapshots for that path live in [docs/demo/laravel-happy-path](docs/demo/laravel-happy-path/README.md).
 
 ```bash
-npm i -g github:ryan-prayoga/burnogen-cli
+npm install
+npm run build
+
+cd tests/fixtures/laravel
+node ../../../dist/cli.js generate
 ```
 
-## Commands
+Expected result:
 
-```bash
-brunogen init
-brunogen generate
-brunogen watch
-brunogen validate
-brunogen doctor
+```text
+Generated 5 endpoints.
+OpenAPI: .../tests/fixtures/laravel/.brunogen/openapi.yaml
+Bruno: .../tests/fixtures/laravel/.brunogen/bruno
 ```
 
-## Quick start
-
-Inside your API project:
+The normal installed flow is the same:
 
 ```bash
 brunogen init
@@ -56,10 +62,154 @@ brunogen generate
 
 Default output:
 
-- OpenAPI: `.brunogen/openapi.yaml`
-- Bruno collection: `.brunogen/bruno`
+- `.brunogen/openapi.yaml`
+- `.brunogen/bruno/`
 
-## Example config
+## Example Input Project Shape
+
+This is the minimal Laravel shape Brunogen currently handles well:
+
+```text
+app/
+  Http/
+    Controllers/
+      SessionController.php
+      UserController.php
+    Requests/
+      StoreUserRequest.php
+routes/
+  api.php
+artisan
+composer.json
+```
+
+## Example Output Tree
+
+Generated from the Laravel fixture:
+
+```text
+.brunogen/
+  openapi.yaml
+  bruno/
+    bruno.json
+    environments/
+      local.bru
+    session/
+      sessioncontrollerstore.bru
+    user/
+      usercontrollerindex.bru
+      usercontrollerindexgetapiprojects.bru
+      usercontrollershow.bru
+      usercontrollerstore.bru
+```
+
+The same snapshot is also checked into:
+
+- [output-tree.txt](docs/demo/laravel-happy-path/output-tree.txt)
+- [openapi-snippet.yaml](docs/demo/laravel-happy-path/openapi-snippet.yaml)
+- [usercontrollerstore.bru](docs/demo/laravel-happy-path/bruno/user/usercontrollerstore.bru)
+
+## Example Generated OpenAPI
+
+Real snippet from the generated Laravel fixture output:
+
+```yaml
+openapi: 3.1.0
+paths:
+  /api/users:
+    post:
+      operationId: usercontrollerStore
+      summary: UserController::store
+      tags:
+        - User
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                name:
+                  maxLength: 255
+                  type: string
+                email:
+                  format: email
+                  type: string
+                age:
+                  nullable: true
+                  minimum: 18
+                  type: integer
+              required:
+                - name
+                - email
+      responses:
+        "201":
+          description: Inferred JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                  data:
+                    type: object
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      email:
+                        type: string
+              example:
+                message: User created
+                data:
+                  id: 1
+                  name: Jane Doe
+                  email: jane@example.com
+      security:
+        - bearerAuth: []
+```
+
+## Example Generated Bruno Request
+
+Real snippet from the generated Laravel fixture output:
+
+```bru
+meta {
+  name: usercontrollerStore
+  type: http
+  seq: 3
+  tags: [
+    User
+  ]
+}
+
+post {
+  url: {{baseUrl}}/api/users
+  body: json
+  auth: bearer
+}
+
+headers {
+  accept: application/json
+  content-type: application/json
+}
+
+auth:bearer {
+  token: {{authToken}}
+}
+
+body:json {
+  {
+    "name": "",
+    "email": "user@example.com",
+    "age": 1
+  }
+}
+```
+
+## Example Config
 
 ```json
 {
@@ -102,10 +252,55 @@ Default output:
 }
 ```
 
-## Notes
+## Support Matrix
 
-- Partial generation is preferred over hard failure.
-- OpenAPI is the normalized source of truth after scanning.
-- Bruno is the output target, not the primary internal model.
-- Current Go response/schema inference is heuristic and will improve over time.
-- GitHub Packages publishes the scoped package `@ryan-prayoga/brunogen`.
+| Area | Status | Notes |
+| --- | --- | --- |
+| Laravel route scanning | Supported | Reads `routes/*.php` declarations |
+| Laravel route groups and prefixes | Supported | Handles common `prefix`, `middleware`, and grouped routes |
+| Laravel `apiResource` expansion | Supported | Common REST actions are expanded |
+| Laravel FormRequest inference | Partial | `rules()` arrays are supported; complex dynamic rules are not |
+| Laravel inline validation inference | Partial | Simple `$request->validate()` and `Validator::make()` arrays |
+| Auth inference | Partial | Middleware and OpenAPI security are inferred heuristically |
+| OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
+| Bruno export | Supported | Collection, requests, environments, and baseline auth blocks |
+| Go Fiber scanning | Experimental | Route and request inference are heuristic |
+| Go Gin scanning | Experimental | Route and request inference are heuristic |
+| Go Echo scanning | Experimental | Route and request inference are heuristic |
+| Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns |
+| Laravel response inference | Partial | Straightforward `return [...]`, `response()->json([...], status)`, and `noContent()` patterns |
+| Go response inference | Limited | Response helper inference is still heuristic and often generic |
+| Watch mode | Supported | Regenerates on `.php` and `.go` changes |
+
+## Known Limitations
+
+- This is not production-hardened. It is an early public alpha.
+- Laravel parsing is regex-driven, not full AST analysis.
+- Complex dynamic route declarations may be skipped with warnings.
+- Complex Laravel validation rules, custom rule objects, and conditional rules are not fully inferred.
+- Laravel response inference currently targets straightforward array and `response()->json()` return paths.
+- Go support is intentionally labeled experimental.
+- Go route parsing can miss unusual middleware signatures or custom router abstractions.
+- Go response schemas are best-effort and often generic around nested `data` payloads.
+- Generated Bruno auth is baseline setup, not a complete auth flow engine.
+
+## Roadmap
+
+- Stabilize the Laravel path as the default demoable experience
+- Improve Laravel and Go response inference without breaking the current OpenAPI-first pipeline
+- Reduce Go false positives and document supported code patterns more precisely
+- Add more canonical fixtures before broadening framework claims
+
+## Release Hygiene
+
+Useful checks before tagging:
+
+```bash
+npm run verify
+```
+
+Related docs:
+
+- [CHANGELOG.md](CHANGELOG.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [docs/release-checklist.md](docs/release-checklist.md)

@@ -3,6 +3,7 @@
 import path from "node:path";
 
 import { Command } from "commander";
+import packageJson from "../package.json";
 
 import { loadConfig, renderDefaultConfigFile, resolveFromConfigRoot } from "./core/config";
 import { fileExists, writeTextFile } from "./core/fs";
@@ -14,7 +15,7 @@ const program = new Command();
 program
   .name("brunogen")
   .description("Generate Bruno collections from Laravel and Go API source code.")
-  .version("0.1.0");
+  .version(packageJson.version);
 
 program.command("init")
   .description("Create a brunogen config file in the current directory.")

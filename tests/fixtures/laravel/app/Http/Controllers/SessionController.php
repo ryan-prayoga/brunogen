@@ -13,6 +13,9 @@ class SessionController extends Controller
             'password' => ['required', 'string', 'min:8'],
         ]);
 
-        return [];
+        return response()->json([
+            'message' => 'Logged in',
+            'token' => 'demo-token',
+        ], 201);
     }
 }

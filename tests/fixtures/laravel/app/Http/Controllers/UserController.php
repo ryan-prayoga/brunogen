@@ -9,16 +9,38 @@ class UserController extends Controller
 {
     public function index()
     {
-        return [];
+        return [
+            'data' => [
+                [
+                    'id' => 1,
+                    'name' => 'Jane Doe',
+                ],
+            ],
+            'meta' => [
+                'page' => 1,
+            ],
+        ];
     }
 
     public function store(StoreUserRequest $request)
     {
-        return [];
+        return response()->json([
+            'message' => 'User created',
+            'data' => [
+                'id' => 1,
+                'name' => 'Jane Doe',
+                'email' => 'jane@example.com',
+            ],
+        ], 201);
     }
 
     public function show(Request $request)
     {
-        return [];
+        return [
+            'data' => [
+                'id' => 1,
+                'name' => 'Jane Doe',
+            ],
+        ];
     }
 }
