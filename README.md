@@ -45,6 +45,12 @@ cd tests/fixtures/laravel
 node ../../../dist/cli.js generate
 ```
 
+To refresh the checked-in Laravel demo snapshots after an intentional output change:
+
+```bash
+npm run demo:laravel
+```
+
 Expected result:
 
 ```text

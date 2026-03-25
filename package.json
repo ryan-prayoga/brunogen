@@ -12,6 +12,7 @@
   "bin": "dist/cli.js",
   "scripts": {
     "build": "tsup src/cli.ts src/index.ts --format cjs --dts --clean",
+    "demo:laravel": "npm run build && node scripts/update-laravel-demo.js",
     "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
