@@ -9,6 +9,8 @@ npm install
 npm run verify
 ```
 
+The CI workflow mirrors `npm run verify` on pull requests and pushes to `main`.
+
 ## Expectations
 
 - Preserve the core pipeline:
