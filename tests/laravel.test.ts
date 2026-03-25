@@ -14,15 +14,31 @@ describe("Laravel adapter", () => {
     const login = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/login");
     expect(login?.auth.type).toBe("none");
     expect(login?.requestBody?.schema.properties?.email?.format).toBe("email");
+    expect(login?.responses[0]?.statusCode).toBe("201");
+    expect(login?.responses[0]?.example).toEqual({
+      message: "Logged in",
+      token: "demo-token",
+    });
 
     const createUser = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/users" && endpoint.method === "post");
     expect(createUser?.auth.type).toBe("bearer");
     expect(createUser?.requestBody?.schema.properties?.name?.type).toBe("string");
     expect(createUser?.requestBody?.schema.required).toContain("name");
+    expect(createUser?.responses[0]?.statusCode).toBe("201");
+    expect(createUser?.responses[0]?.schema?.properties?.data?.type).toBe("object");
+    expect(createUser?.responses[0]?.example).toEqual({
+      message: "User created",
+      data: {
+        id: 1,
+        name: "Jane Doe",
+        email: "jane@example.com",
+      },
+    });
 
     const resourceShow = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/projects/{project}" && endpoint.method === "get");
     expect(resourceShow?.parameters).toEqual([
       expect.objectContaining({ name: "project", in: "path" }),
     ]);
+    expect(resourceShow?.responses[0]?.schema?.properties?.data?.type).toBe("object");
   });
 });

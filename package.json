@@ -1,7 +1,7 @@
 {
   "name": "brunogen",
-  "version": "0.1.0",
-  "description": "Generate Bruno collections from Laravel and Go API source code.",
+  "version": "0.1.0-alpha",
+  "description": "Scan Laravel and Go API projects, normalize them into OpenAPI, and emit ready-to-try Bruno collections.",
   "type": "commonjs",
   "main": "./dist/index.js",
   "files": [
@@ -15,7 +15,8 @@
     "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test && npm run build && node dist/cli.js --help"
   },
   "keywords": [
     "bruno",
@@ -26,16 +27,16 @@
     "echo",
     "cli"
   ],
-  "author": "",
+  "author": "Ryan Prayoga",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryan-prayoga/burnogen-cli.git"
+    "url": "git+https://github.com/ryan-prayoga/brunogen.git"
   },
   "bugs": {
-    "url": "https://github.com/ryan-prayoga/burnogen-cli/issues"
+    "url": "https://github.com/ryan-prayoga/brunogen/issues"
   },
-  "homepage": "https://github.com/ryan-prayoga/burnogen-cli#readme",
+  "homepage": "https://github.com/ryan-prayoga/brunogen#readme",
   "engines": {
     "node": ">=20"
   },

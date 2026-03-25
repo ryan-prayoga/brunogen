@@ -26,6 +26,7 @@ interface GroupContext {
 
 interface ControllerAnalysis {
   requestBody?: NormalizedRequestBody;
+  responses: NormalizedResponse[];
   warnings: GenerationWarning[];
 }
 
@@ -240,7 +241,7 @@ async function parseConcreteRoute(
       tags: [inferTag(normalizedPath, handler?.controller)],
       parameters,
       requestBody: analysis.requestBody,
-      responses: buildDefaultResponses(method),
+      responses: analysis.responses.length > 0 ? analysis.responses : buildDefaultResponses(method),
       auth: inferredAuth,
       source: {
         file: filePath,
@@ -321,7 +322,7 @@ async function parseResourceRoute(
       tags: [inferTag(normalizedPath, controller)],
       parameters: extractPathParameters(normalizedPath),
       requestBody: analysis.requestBody,
-      responses: buildDefaultResponses(action.method),
+      responses: analysis.responses.length > 0 ? analysis.responses : buildDefaultResponses(action.method),
       auth: inferAuthFromMiddleware(context.middleware),
       source: {
         file: filePath,
@@ -374,7 +375,7 @@ async function analyzeControllerHandler(
   controllerCache: Map<string, ControllerAnalysis>,
 ): Promise<ControllerAnalysis> {
   if (!handler?.controller || !handler.action) {
-    return { warnings: [] };
+    return { responses: [], warnings: [] };
   }
 
   const cacheKey = `${handler.controller}:${handler.action}`;
@@ -389,7 +390,7 @@ async function analyzeControllerHandler(
       code: "LARAVEL_CONTROLLER_NOT_FOUND",
       message: `Could not locate controller ${handler.controller} while inferring request schema.`,
     };
-    const result = { warnings: [warning] };
+    const result = { responses: [], warnings: [warning] };
     controllerCache.set(cacheKey, result);
     return result;
   }
@@ -402,7 +403,7 @@ async function analyzeControllerHandler(
       message: `Could not locate ${handler.controller}::${handler.action} while inferring request schema.`,
       location: { file: controllerRecord.filePath },
     };
-    const result = { warnings: [warning] };
+    const result = { responses: [], warnings: [warning] };
     controllerCache.set(cacheKey, result);
     return result;
   }
@@ -412,38 +413,32 @@ async function analyzeControllerHandler(
   const bodyStartIndex = content.indexOf("{", methodMatch.index);
   const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
   const warnings: GenerationWarning[] = [];
+  let requestBody: NormalizedRequestBody | undefined;
+  let responses: NormalizedResponse[] = [];
 
   if (firstRequestType && firstRequestType !== "Request") {
     const requestSchema = await parseFormRequestSchema(firstRequestType, classIndex);
     if (requestSchema) {
-      const result = {
-        requestBody: {
-          contentType: "application/json" as const,
-          schema: requestSchema,
-        },
-        warnings,
+      requestBody = {
+        contentType: "application/json" as const,
+        schema: requestSchema,
       };
-      controllerCache.set(cacheKey, result);
-      return result;
     }
   }
 
   if (body) {
     const inlineRules = extractInlineValidationRules(body);
     if (inlineRules) {
-      const result = {
-        requestBody: {
-          contentType: "application/json" as const,
-          schema: buildLaravelSchemaFromRules(inlineRules),
-        },
-        warnings,
+      requestBody = {
+        contentType: "application/json" as const,
+        schema: buildLaravelSchemaFromRules(inlineRules),
       };
-      controllerCache.set(cacheKey, result);
-      return result;
     }
+
+    responses = extractLaravelResponses(body);
   }
 
-  const result = { warnings };
+  const result = { requestBody, responses, warnings };
   controllerCache.set(cacheKey, result);
   return result;
 }
@@ -747,6 +742,316 @@ function buildDefaultResponses(method: HttpMethod): NormalizedResponse[] {
     statusCode: methodToResponseStatus[method],
     description: "Generated default response",
   }];
+}
+
+function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
+  const responses = new Map<string, NormalizedResponse>();
+
+  for (const jsonCall of extractReturnResponseJsonCalls(methodBody)) {
+    const args = splitTopLevel(jsonCall.slice(1, -1), ",");
+    if (args.length === 0) {
+      continue;
+    }
+
+    const example = parsePhpExampleValue(args[0]);
+    const statusCode = parseLaravelStatusCode(args[1]) ?? "200";
+    responses.set(statusCode, {
+      statusCode,
+      description: "Inferred JSON response",
+      contentType: "application/json",
+      schema: inferSchemaFromExample(example),
+      example,
+    });
+  }
+
+  for (const noContentCall of extractReturnResponseNoContentCalls(methodBody)) {
+    const args = splitTopLevel(noContentCall.slice(1, -1), ",");
+    const statusCode = parseLaravelStatusCode(args[0]) ?? "204";
+    responses.set(statusCode, {
+      statusCode,
+      description: "Inferred empty response",
+    });
+  }
+
+  for (const arrayLiteral of extractDirectReturnArrays(methodBody)) {
+    const example = parsePhpExampleValue(arrayLiteral);
+    const statusCode = "200";
+    if (!responses.has(statusCode)) {
+      responses.set(statusCode, {
+        statusCode,
+        description: "Inferred array response",
+        contentType: "application/json",
+        schema: inferSchemaFromExample(example),
+        example,
+      });
+    }
+  }
+
+  return [...responses.values()];
+}
+
+function extractReturnResponseJsonCalls(methodBody: string): string[] {
+  const results: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return response()->json(", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const openParenIndex = methodBody.indexOf("(", returnIndex + "return response()->json".length);
+    const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+    if (!argsBlock) {
+      break;
+    }
+
+    results.push(argsBlock);
+    offset = openParenIndex + argsBlock.length;
+  }
+
+  return results;
+}
+
+function extractReturnResponseNoContentCalls(methodBody: string): string[] {
+  const results: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return response()->noContent(", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const openParenIndex = methodBody.indexOf("(", returnIndex + "return response()->noContent".length);
+    const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+    if (!argsBlock) {
+      break;
+    }
+
+    results.push(argsBlock);
+    offset = openParenIndex + argsBlock.length;
+  }
+
+  return results;
+}
+
+function extractDirectReturnArrays(methodBody: string): string[] {
+  const results: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return [", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const openBracketIndex = methodBody.indexOf("[", returnIndex);
+    const arrayBlock = openBracketIndex >= 0 ? extractBalanced(methodBody, openBracketIndex, "[", "]") : null;
+    if (!arrayBlock) {
+      break;
+    }
+
+    results.push(arrayBlock);
+    offset = openBracketIndex + arrayBlock.length;
+  }
+
+  return results;
+}
+
+function parseLaravelStatusCode(rawValue?: string): string | undefined {
+  if (!rawValue) {
+    return undefined;
+  }
+
+  const trimmed = rawValue.trim();
+  if (/^\d+$/.test(trimmed)) {
+    return trimmed;
+  }
+
+  const statusMap: Record<string, string> = {
+    "Response::HTTP_OK": "200",
+    "Response::HTTP_CREATED": "201",
+    "Response::HTTP_NO_CONTENT": "204",
+    "Response::HTTP_BAD_REQUEST": "400",
+    "Response::HTTP_UNAUTHORIZED": "401",
+    "Response::HTTP_FORBIDDEN": "403",
+    "Response::HTTP_NOT_FOUND": "404",
+    "Response::HTTP_UNPROCESSABLE_ENTITY": "422",
+    "Response::HTTP_INTERNAL_SERVER_ERROR": "500",
+  };
+
+  return statusMap[trimmed];
+}
+
+function parsePhpExampleValue(rawValue: string): unknown {
+  const value = rawValue.trim();
+
+  const stringValue = parsePhpString(value);
+  if (stringValue !== undefined) {
+    return stringValue;
+  }
+
+  if (value === "true" || value === "false") {
+    return value === "true";
+  }
+
+  if (value === "null") {
+    return null;
+  }
+
+  if (/^-?\d+$/.test(value)) {
+    return Number.parseInt(value, 10);
+  }
+
+  if (/^-?\d+\.\d+$/.test(value)) {
+    return Number.parseFloat(value);
+  }
+
+  if (value.startsWith("[") && value.endsWith("]")) {
+    const entries = splitTopLevel(value.slice(1, -1), ",");
+    const isAssoc = entries.some((entry) => hasTopLevelArrow(entry));
+
+    if (!isAssoc) {
+      return entries.filter(Boolean).map((entry) => parsePhpExampleValue(entry));
+    }
+
+    return Object.fromEntries(entries
+      .filter((entry) => hasTopLevelArrow(entry))
+      .map((entry) => {
+        const [rawKey, rawEntryValue] = splitTopLevelArrow(entry);
+        const parsedKey = parsePhpString(rawKey.trim()) ?? rawKey.trim();
+        return [String(parsedKey), parsePhpExampleValue(rawEntryValue)];
+      }));
+  }
+
+  if (value.startsWith("$")) {
+    return {};
+  }
+
+  return {};
+}
+
+function inferSchemaFromExample(example: unknown): SchemaObject {
+  if (example === null || example === undefined) {
+    return { nullable: true };
+  }
+
+  if (Array.isArray(example)) {
+    return {
+      type: "array",
+      items: example.length > 0 ? inferSchemaFromExample(example[0]) : { type: "string" },
+    };
+  }
+
+  switch (typeof example) {
+    case "string":
+      return { type: "string" };
+    case "number":
+      return Number.isInteger(example) ? { type: "integer" } : { type: "number" };
+    case "boolean":
+      return { type: "boolean" };
+    case "object":
+      return {
+        type: "object",
+        properties: Object.fromEntries(
+          Object.entries(example as Record<string, unknown>).map(([key, value]) => [key, inferSchemaFromExample(value)]),
+        ),
+      };
+    default:
+      return { type: "string" };
+  }
+}
+
+function hasTopLevelArrow(input: string): boolean {
+  return findTopLevelArrowIndex(input) >= 0;
+}
+
+function splitTopLevelArrow(input: string): [string, string] {
+  const index = findTopLevelArrowIndex(input);
+  if (index < 0) {
+    return [input, ""];
+  }
+
+  return [input.slice(0, index), input.slice(index + 2)];
+}
+
+function findTopLevelArrowIndex(input: string): number {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < input.length - 1; index += 1) {
+    const character = input[index];
+    const nextCharacter = input[index + 1];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (character === "'" || character === "\"") {
+      if (quote === character) {
+        quote = null;
+      } else if (!quote) {
+        quote = character;
+      }
+      continue;
+    }
+
+    if (quote) {
+      continue;
+    }
+
+    if (character === "(") {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (character === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (character === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+
+    if (character === "]") {
+      bracketDepth -= 1;
+      continue;
+    }
+
+    if (character === "{") {
+      braceDepth += 1;
+      continue;
+    }
+
+    if (character === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+
+    if (
+      character === "=" &&
+      nextCharacter === ">" &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
+    ) {
+      return index;
+    }
+  }
+
+  return -1;
 }
 
 function extractRouteChainCalls(statement: string): Array<{ name: string; value: string; }> {
