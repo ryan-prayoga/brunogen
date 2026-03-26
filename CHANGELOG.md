@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.3.1
+
+- Refresh the public README with framework-specific visual previews for Laravel, Express, and Go
+- Add a checked-in Go happy-path demo snapshot
+- Clarify quickstart and demo callouts so the first-run path is easier to understand from GitHub and npm
+
 ## v0.3.0
 
 - Broaden Laravel manual request inference for `has`, `filled`, `safe()->only([...])`, and `enum(...)`
