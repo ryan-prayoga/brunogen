@@ -110,4 +110,26 @@ describe("Go adapters", () => {
       statusCode: "204",
     }));
   });
+
+  it("supports configurable auth middleware hints for Go adapters", async () => {
+    const artifacts = await generateArtifacts(fixturePath("gin-custom-auth"), defaultConfig());
+    const reports = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/reports" && endpoint.method === "get");
+
+    expect(reports?.auth.type).toBe("none");
+    expect(artifacts.warnings).toContainEqual(expect.objectContaining({
+      code: "GO_AUTH_MIDDLEWARE_UNKNOWN",
+      message: expect.stringContaining("CheckPermission"),
+    }));
+
+    const config = defaultConfig();
+    config.auth.middlewarePatterns.bearer = ["CheckPermission"];
+
+    const configuredArtifacts = await generateArtifacts(fixturePath("gin-custom-auth"), config);
+    const configuredReports = configuredArtifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/reports" && endpoint.method === "get");
+
+    expect(configuredReports?.auth.type).toBe("bearer");
+    expect(configuredArtifacts.warnings).not.toContainEqual(expect.objectContaining({
+      code: "GO_AUTH_MIDDLEWARE_UNKNOWN",
+    }));
+  });
 });
