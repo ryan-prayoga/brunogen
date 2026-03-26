@@ -1,5 +1,6 @@
 import SwaggerParser from "@apidevtools/swagger-parser";
 
+import { scanExpressProject } from "../adapters/express";
 import { scanLaravelProject } from "../adapters/laravel";
 import { scanGoProject } from "../adapters/go";
 import { buildOpenApi } from "./openapi";
@@ -63,6 +64,8 @@ async function scanProject(
     case "fiber":
     case "echo":
       return scanGoProject(root, framework, projectName, projectVersion);
+    case "express":
+      return scanExpressProject(root, projectName, projectVersion);
     default:
       throw new Error(`Unsupported framework: ${framework satisfies never}`);
   }

@@ -1,4 +1,4 @@
-export type SupportedFramework = "laravel" | "gin" | "fiber" | "echo";
+export type SupportedFramework = "laravel" | "gin" | "fiber" | "echo" | "express";
 
 export type HttpMethod =
   | "get"

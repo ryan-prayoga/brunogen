@@ -14,7 +14,7 @@ const program = new Command();
 
 program
   .name("brunogen")
-  .description("Generate Bruno collections from Laravel and Go API source code.")
+  .description("Generate Bruno collections from Laravel, Express.js, and Go API source code.")
   .version(packageJson.version);
 
 program.command("init")
@@ -55,6 +55,10 @@ program.command("watch")
     const watchPaths = [
       path.join(projectRoot, "**/*.php"),
       path.join(projectRoot, "**/*.go"),
+      path.join(projectRoot, "**/*.js"),
+      path.join(projectRoot, "**/*.cjs"),
+      path.join(projectRoot, "**/*.mjs"),
+      path.join(projectRoot, "**/*.ts"),
     ];
     if (configPath) {
       watchPaths.push(configPath);
