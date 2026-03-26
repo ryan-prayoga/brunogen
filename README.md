@@ -4,7 +4,7 @@
 
 Brunogen scans a Laravel, Express.js, or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
 
-Early public alpha. Laravel is the primary happy path today. Express.js and Go support exist, but remain experimental and heuristic.
+Early public alpha. Laravel is the primary happy path today and now has materially richer request and response inference. Express.js and Go support exist, but remain experimental and heuristic.
 
 CI runs `npm run verify` on pushes to `main` and on pull requests. That includes the Laravel golden snapshot test for the checked-in demo path.
 
@@ -31,8 +31,9 @@ OpenAPI is the internal source of truth after scanning. Bruno is the output targ
 - Global CLI with `init`, `generate`, `watch`, `validate`, and `doctor`
 - Laravel route scanning from `routes/*.php`
 - Laravel route groups, prefixes, middleware-based auth hints, and `apiResource` expansion
-- Laravel request schema inference from FormRequest rules and simple inline validation
-- Bruno collection generation with environment files and baseline bearer/basic/api-key auth support
+- Laravel request schema inference from FormRequest rules, simple inline validation, and common manual request accessors
+- Laravel response inference for direct arrays, `response()->json(...)`, `noContent()`, `JsonResource`, `->additional(...)`, and common abort/error paths
+- Bruno collection generation with environment files, baseline bearer/basic/api-key auth support, and native response `example {}` blocks
 - OpenAPI generation and validation before export
 - Express.js scanning in experimental mode for `express()`/`Router()`, mounted routers, basic handler imports, and heuristic body/query/header/response inference
 - Go Gin, Fiber, and Echo scanning in experimental mode
@@ -59,7 +60,7 @@ npm run demo:laravel
 Expected result:
 
 ```text
-Generated 5 endpoints.
+Generated 6 endpoints.
 OpenAPI: .../tests/fixtures/laravel/.brunogen/openapi.yaml
 Bruno: .../tests/fixtures/laravel/.brunogen/bruno
 ```
@@ -127,6 +128,7 @@ Generated from the Laravel fixture:
     environments/
       local.bru
     session/
+      sessioncontrollercheck.bru
       sessioncontrollerstore.bru
     user/
       usercontrollerindex.bru
@@ -139,6 +141,7 @@ The same snapshot is also checked into:
 
 - [output-tree.txt](docs/demo/laravel-happy-path/output-tree.txt)
 - [openapi-snippet.yaml](docs/demo/laravel-happy-path/openapi-snippet.yaml)
+- [sessioncontrollercheck.bru](docs/demo/laravel-happy-path/bruno/session/sessioncontrollercheck.bru)
 - [usercontrollerstore.bru](docs/demo/laravel-happy-path/bruno/user/usercontrollerstore.bru)
 
 ## Example Generated OpenAPI
@@ -211,7 +214,7 @@ Real snippet from the generated Laravel fixture output:
 meta {
   name: usercontrollerStore
   type: http
-  seq: 3
+  seq: 4
   tags: [
     User
   ]
@@ -237,6 +240,54 @@ body:json {
     "name": "",
     "email": "user@example.com",
     "age": 1
+  }
+}
+
+example {
+  name: "201 Response"
+  description: "Inferred JSON response"
+
+  request: {
+    url: {{baseUrl}}/api/users
+    method: post
+    mode: json
+    headers: {
+      accept: application/json
+      content-type: application/json
+    }
+
+    body:json: {
+      {
+        "name": "",
+        "email": "user@example.com",
+        "age": 1
+      }
+    }
+  }
+
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+
+    status: {
+      code: 201
+      text: Created
+    }
+
+    body: {
+      type: json
+      content: '''
+        {
+          "message": "User created",
+          "data": {
+            "id": 1,
+            "name": "Jane Doe",
+            "email": "jane@example.com"
+          }
+        }
+      '''
+    }
   }
 }
 ```
@@ -292,17 +343,18 @@ body:json {
 | Laravel route groups and prefixes | Supported | Handles common `prefix`, `middleware`, and grouped routes |
 | Laravel `apiResource` expansion | Supported | Common REST actions are expanded |
 | Laravel FormRequest inference | Partial | `rules()` arrays are supported; complex dynamic rules are not |
+| Laravel manual request inference | Strong partial | Common `query`, `header`, `input`, typed accessors, and `only([...])` patterns are inferred |
 | Laravel inline validation inference | Partial | Simple `$request->validate()` and `Validator::make()` arrays |
 | Auth inference | Partial | Middleware and OpenAPI security are inferred heuristically |
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
-| Bruno export | Supported | Collection, requests, environments, and baseline auth blocks |
+| Bruno export | Supported | Collection, requests, environments, baseline auth blocks, and response `example {}` blocks |
 | Express route scanning | Experimental | Handles `express()` / `Router()`, `use()` mounts, and `route()` chains |
 | Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers |
 | Go Fiber scanning | Experimental | Route and request inference are heuristic |
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
 | Go Echo scanning | Experimental | Route and request inference are heuristic |
 | Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns |
-| Laravel response inference | Partial | Straightforward `return [...]`, `response()->json([...], status)`, and `noContent()` patterns |
+| Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, `JsonResource`, `->additional(...)`, and common abort/error paths |
 | Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, and `sendStatus()` patterns |
 | Go response inference | Limited | Response helper inference is still heuristic and often generic |
 | Watch mode | Supported | Regenerates on `.php`, `.go`, `.js`, `.cjs`, `.mjs`, and `.ts` changes |
@@ -315,7 +367,7 @@ body:json {
 - Complex dynamic route declarations may be skipped with warnings.
 - Complex Express router factories, metaprogrammed middleware, and indirect exports may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects, and conditional rules are not fully inferred.
-- Laravel response inference currently targets straightforward array and `response()->json()` return paths.
+- Laravel response inference is still best-effort around indirect service wrappers, custom responder classes, and highly dynamic resource composition.
 - Express request and response inference currently targets straightforward `req.body` / `req.query` access and direct `res.*()` calls.
 - Go support is intentionally labeled experimental.
 - Go route parsing can miss unusual middleware signatures or custom router abstractions.
@@ -327,6 +379,7 @@ body:json {
 - Stabilize the Laravel path as the default demoable experience
 - Broaden and harden the Express adapter without losing the current lightweight scanner model
 - Improve Laravel and Go response inference without breaking the current OpenAPI-first pipeline
+- Broaden Laravel support for more indirect wrappers and reusable response helpers
 - Reduce Go false positives and document supported code patterns more precisely
 - Add more canonical fixtures before broadening framework claims
 
