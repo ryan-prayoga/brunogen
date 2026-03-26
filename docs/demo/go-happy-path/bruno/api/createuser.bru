@@ -1,7 +1,7 @@
 meta {
   name: createUser
   type: http
-  seq: 1
+  seq: 4
   tags: [
     api
   ]
@@ -25,8 +25,59 @@ auth:bearer {
 body:json {
   {
     "name": "",
-    "email": "",
-    "age": 1
+    "email": "user@example.com",
+    "age": 1,
+    "role": "user",
+    "password": "",
+    "tags": [
+      ""
+    ]
+  }
+}
+
+example {
+  name: "200 Response"
+  description: "Inferred JSON response"
+
+  request: {
+    url: {{baseUrl}}/api/users
+    method: post
+    mode: json
+    headers: {
+      accept: application/json
+      content-type: application/json
+    }
+
+    body:json: {
+      {
+        "name": "",
+        "email": "user@example.com",
+        "age": 1,
+        "role": "user",
+        "password": "",
+        "tags": [
+          ""
+        ]
+      }
+    }
+  }
+
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+
+    status: {
+      code: 200
+      text: OK
+    }
+
+    body: {
+      type: json
+      content: '''
+        {}
+      '''
+    }
   }
 }
 
@@ -46,8 +97,13 @@ example {
     body:json: {
       {
         "name": "",
-        "email": "",
-        "age": 1
+        "email": "user@example.com",
+        "age": 1,
+        "role": "user",
+        "password": "",
+        "tags": [
+          ""
+        ]
       }
     }
   }
@@ -68,10 +124,109 @@ example {
         {
           "message": "user created",
           "data": {
+            "id": 1,
             "name": "Jane Doe",
             "email": "user@example.com",
-            "age": 1
+            "age": 1,
+            "role": "Role",
+            "createdAt": "2024-01-01T00:00:00Z"
           }
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: "400 Response"
+  description: "Inferred JSON response"
+
+  request: {
+    url: {{baseUrl}}/api/users
+    method: post
+    mode: json
+    headers: {
+      accept: application/json
+      content-type: application/json
+    }
+
+    body:json: {
+      {
+        "name": "",
+        "email": "user@example.com",
+        "age": 1,
+        "role": "user",
+        "password": "",
+        "tags": [
+          ""
+        ]
+      }
+    }
+  }
+
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+
+    status: {
+      code: 400
+      text: "Bad Request"
+    }
+
+    body: {
+      type: json
+      content: '''
+        {
+          "error": {}
+        }
+      '''
+    }
+  }
+}
+
+example {
+  name: "409 Response"
+  description: "Inferred JSON response"
+
+  request: {
+    url: {{baseUrl}}/api/users
+    method: post
+    mode: json
+    headers: {
+      accept: application/json
+      content-type: application/json
+    }
+
+    body:json: {
+      {
+        "name": "",
+        "email": "user@example.com",
+        "age": 1,
+        "role": "user",
+        "password": "",
+        "tags": [
+          ""
+        ]
+      }
+    }
+  }
+
+  response: {
+    headers: {
+      Content-Type: application/json
+    }
+
+    status: {
+      code: 409
+      text: Conflict
+    }
+
+    body: {
+      type: json
+      content: '''
+        {
+          "error": "Email already exists"
         }
       '''
     }

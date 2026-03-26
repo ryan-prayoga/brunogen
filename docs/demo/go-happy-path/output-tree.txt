@@ -2,8 +2,14 @@
   openapi.yaml
   bruno/
     bruno.json
-    environments/
-      local.bru
     api/
       createuser.bru
+      deleteuser.bru
+      getme.bru
       getuser.bru
+      listusers.bru
+      login.bru
+      register.bru
+      updateuser.bru
+    environments/
+      local.bru
