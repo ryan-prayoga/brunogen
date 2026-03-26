@@ -19,10 +19,13 @@ describe("Laravel adapter", () => {
     expect(login?.requestBody?.schema.properties?.scopes?.type).toBe("array");
     expect(login?.requestBody?.schema.properties?.tenant_id?.type).toBe("string");
     expect(login?.responses[0]?.statusCode).toBe("201");
-    expect(login?.responses[0]?.example).toEqual(expect.objectContaining({
+    expect(login?.responses[0]?.example).toEqual({
       message: "Logged in",
       token: "demo-token",
-    }));
+      device_name: "ios-simulator",
+      remember_me: true,
+      scopes: ["read"],
+    });
 
     const createUser = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/users" && endpoint.method === "post");
     expect(createUser?.auth.type).toBe("bearer");
@@ -48,6 +51,18 @@ describe("Laravel adapter", () => {
       name: "TTOKEN",
       in: "header",
     }));
+    expect(listUsers?.responses[0]?.example).toEqual({
+      data: [
+        {
+          id: 1,
+          name: "Jane Doe",
+        },
+      ],
+      meta: {
+        page: 1,
+        token: "TTOKEN_VALUE",
+      },
+    });
 
     const resourceShow = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/projects/{project}" && endpoint.method === "get");
     expect(resourceShow?.parameters).toEqual([
