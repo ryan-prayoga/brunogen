@@ -51,6 +51,8 @@ Brunogen is already useful for real codebases that stay close to common framewor
 
 ## Quick Start
 
+Best first run: use the Laravel demo path below if you want to see the most complete inference flow in under a minute.
+
 ```bash
 npm i -g brunogen
 brunogen init
