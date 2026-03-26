@@ -974,7 +974,7 @@ async function extractLaravelResponses(
     }
   }
 
-  const resourceResponses = await extractLaravelResourceResponses(methodBody, classIndex);
+  const resourceResponses = await extractLaravelResourceResponses(methodBody, classIndex, exampleContext);
   for (const response of resourceResponses) {
     if (!responses.has(response.statusCode)) {
       responses.set(response.statusCode, response);
@@ -987,32 +987,22 @@ async function extractLaravelResponses(
 async function extractLaravelResourceResponses(
   methodBody: string,
   classIndex: Map<string, PhpClassRecord>,
+  exampleContext: PhpExampleContext,
 ): Promise<NormalizedResponse[]> {
   const responses: NormalizedResponse[] = [];
+  const returnStatements = extractReturnStatements(methodBody);
 
-  for (const match of methodBody.matchAll(/return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/g)) {
-    const resourceType = match[1];
-    if (!resourceType) {
-      continue;
-    }
-
-    const resourceResponse = await buildLaravelResourceResponse(resourceType, "single", classIndex);
-    if (resourceResponse) {
-      responses.push(resourceResponse);
-    }
-  }
-
-  for (const match of methodBody.matchAll(/return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/g)) {
-    const resourceType = match[1];
-    const factoryMethod = match[2];
-    if (!resourceType || !factoryMethod) {
+  for (const statement of returnStatements) {
+    const parsedResourceReturn = parseLaravelResourceReturnStatement(statement, exampleContext);
+    if (!parsedResourceReturn) {
       continue;
     }
 
     const resourceResponse = await buildLaravelResourceResponse(
-      resourceType,
-      factoryMethod === "collection" ? "collection" : "single",
+      parsedResourceReturn.resourceType,
+      parsedResourceReturn.mode,
       classIndex,
+      parsedResourceReturn.additional,
     );
     if (resourceResponse) {
       responses.push(resourceResponse);
@@ -1026,35 +1016,45 @@ async function buildLaravelResourceResponse(
   resourceType: string,
   mode: "single" | "collection",
   classIndex: Map<string, PhpClassRecord>,
+  additional?: unknown,
 ): Promise<NormalizedResponse | undefined> {
   const resourceSchema = await parseLaravelResourceSchema(resourceType, classIndex);
   if (!resourceSchema) {
     return undefined;
   }
 
+  const additionalProperties = additional && typeof additional === "object" && !Array.isArray(additional)
+    ? additional as Record<string, unknown>
+    : undefined;
+  const additionalSchema = additionalProperties ? inferSchemaFromExample(additionalProperties) : undefined;
+  const wrappedSchema: SchemaObject = mode === "collection"
+    ? {
+      type: "object",
+      properties: {
+        data: {
+          type: "array",
+          items: resourceSchema.schema,
+        },
+        ...(additionalSchema?.properties ?? {}),
+      },
+    }
+    : {
+      type: "object",
+      properties: {
+        data: resourceSchema.schema,
+        ...(additionalSchema?.properties ?? {}),
+      },
+    };
+  const wrappedExample = mode === "collection"
+    ? { data: [resourceSchema.example], ...(additionalProperties ?? {}) }
+    : { data: resourceSchema.example, ...(additionalProperties ?? {}) };
+
   return {
     statusCode: "200",
     description: "Inferred Laravel resource response",
     contentType: "application/json",
-    schema: mode === "collection"
-      ? {
-        type: "object",
-        properties: {
-          data: {
-            type: "array",
-            items: resourceSchema.schema,
-          },
-        },
-      }
-      : {
-        type: "object",
-        properties: {
-          data: resourceSchema.schema,
-        },
-      },
-    example: mode === "collection"
-      ? { data: [resourceSchema.example] }
-      : { data: resourceSchema.example },
+    schema: wrappedSchema,
+    example: wrappedExample,
   };
 }
 
@@ -1089,6 +1089,79 @@ async function parseLaravelResourceSchema(
     schema: inferSchemaFromExample(example),
     example,
   };
+}
+
+function parseLaravelResourceReturnStatement(
+  statement: string,
+  exampleContext: PhpExampleContext,
+): { resourceType: string; mode: "single" | "collection"; additional?: unknown; } | undefined {
+  const newResourceMatch = statement.match(/^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/);
+  if (newResourceMatch?.[1]) {
+    return {
+      resourceType: newResourceMatch[1],
+      mode: "single",
+      additional: extractLaravelResourceAdditional(statement, exampleContext),
+    };
+  }
+
+  const factoryMatch = statement.match(/^return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/);
+  if (factoryMatch?.[1] && factoryMatch[2]) {
+    return {
+      resourceType: factoryMatch[1],
+      mode: factoryMatch[2] === "collection" ? "collection" : "single",
+      additional: extractLaravelResourceAdditional(statement, exampleContext),
+    };
+  }
+
+  return undefined;
+}
+
+function extractLaravelResourceAdditional(
+  statement: string,
+  exampleContext: PhpExampleContext,
+): unknown | undefined {
+  const additionalIndex = statement.indexOf("->additional(");
+  if (additionalIndex < 0) {
+    return undefined;
+  }
+
+  const openParenIndex = statement.indexOf("(", additionalIndex + "->additional".length);
+  const argsBlock = openParenIndex >= 0 ? extractBalanced(statement, openParenIndex, "(", ")") : null;
+  if (!argsBlock) {
+    return undefined;
+  }
+
+  const firstArg = splitTopLevel(argsBlock.slice(1, -1), ",")[0]?.trim();
+  if (!firstArg) {
+    return undefined;
+  }
+
+  const additional = parsePhpExampleValue(firstArg, exampleContext);
+  return additional && typeof additional === "object" && !Array.isArray(additional)
+    ? additional
+    : undefined;
+}
+
+function extractReturnStatements(methodBody: string): string[] {
+  const statements: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const statementEnd = findTopLevelStatementTerminator(methodBody, returnIndex);
+    if (statementEnd < 0) {
+      break;
+    }
+
+    statements.push(methodBody.slice(returnIndex, statementEnd + 1).trim());
+    offset = statementEnd + 1;
+  }
+
+  return statements;
 }
 
 const unresolvedPhpExample = Symbol("unresolved-php-example");
