@@ -31,8 +31,8 @@ OpenAPI is the internal source of truth after scanning. Bruno is the output targ
 - Global CLI with `init`, `generate`, `watch`, `validate`, and `doctor`
 - Laravel route scanning from `routes/*.php`
 - Laravel route groups, prefixes, middleware-based auth hints, and `apiResource` expansion
-- Laravel request schema inference from FormRequest rules, simple inline validation, and common manual request accessors
-- Laravel response inference for direct arrays, `response()->json(...)`, `noContent()`, `JsonResource`, `->additional(...)`, and common abort/error paths
+- Laravel request schema inference from FormRequest rules, simple inline validation, and common manual request accessors such as `query`, `header`, typed accessors, `has`, `filled`, `safe()->only(...)`, and `enum(...)`
+- Laravel response inference for direct arrays, `response()->json(...)`, `noContent()`, same-controller response helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths
 - Bruno collection generation with environment files, baseline bearer/basic/api-key auth support, and native response `example {}` blocks
 - OpenAPI generation and validation before export
 - Express.js scanning in experimental mode for `express()`/`Router()`, mounted routers, basic handler imports, and heuristic body/query/header/response inference
@@ -343,7 +343,7 @@ example {
 | Laravel route groups and prefixes | Supported | Handles common `prefix`, `middleware`, and grouped routes |
 | Laravel `apiResource` expansion | Supported | Common REST actions are expanded |
 | Laravel FormRequest inference | Partial | `rules()` arrays are supported; complex dynamic rules are not |
-| Laravel manual request inference | Strong partial | Common `query`, `header`, `input`, typed accessors, and `only([...])` patterns are inferred |
+| Laravel manual request inference | Strong partial | Common `query`, `header`, `input`, typed accessors, `has`, `filled`, `only([...])`, `safe()->only([...])`, and `enum(...)` patterns are inferred |
 | Laravel inline validation inference | Partial | Simple `$request->validate()` and `Validator::make()` arrays |
 | Auth inference | Partial | Middleware and OpenAPI security are inferred heuristically |
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
@@ -354,7 +354,7 @@ example {
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
 | Go Echo scanning | Experimental | Route and request inference are heuristic |
 | Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns |
-| Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, `JsonResource`, `->additional(...)`, and common abort/error paths |
+| Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, same-controller wrapper helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths |
 | Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, and `sendStatus()` patterns |
 | Go response inference | Limited | Response helper inference is still heuristic and often generic |
 | Watch mode | Supported | Regenerates on `.php`, `.go`, `.js`, `.cjs`, `.mjs`, and `.ts` changes |
@@ -367,7 +367,7 @@ example {
 - Complex dynamic route declarations may be skipped with warnings.
 - Complex Express router factories, metaprogrammed middleware, and indirect exports may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects, and conditional rules are not fully inferred.
-- Laravel response inference is still best-effort around indirect service wrappers, custom responder classes, and highly dynamic resource composition.
+- Laravel response inference is still best-effort around cross-class service wrappers, custom responder classes, and highly dynamic resource composition.
 - Express request and response inference currently targets straightforward `req.body` / `req.query` access and direct `res.*()` calls.
 - Go support is intentionally labeled experimental.
 - Go route parsing can miss unusual middleware signatures or custom router abstractions.
@@ -379,7 +379,7 @@ example {
 - Stabilize the Laravel path as the default demoable experience
 - Broaden and harden the Express adapter without losing the current lightweight scanner model
 - Improve Laravel and Go response inference without breaking the current OpenAPI-first pipeline
-- Broaden Laravel support for more indirect wrappers and reusable response helpers
+- Broaden Laravel support for cross-class wrappers and more reusable response helper patterns
 - Reduce Go false positives and document supported code patterns more precisely
 - Add more canonical fixtures before broadening framework claims
 

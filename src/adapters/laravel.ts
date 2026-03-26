@@ -94,7 +94,7 @@ async function buildPhpClassIndex(root: string): Promise<Map<string, PhpClassRec
 
   for (const filePath of phpFiles) {
     const content = await fs.readFile(filePath, "utf8");
-    const classMatch = content.match(/\bclass\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    const classMatch = content.match(/\b(?:class|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
     if (!classMatch?.[1]) {
       continue;
     }
@@ -453,14 +453,14 @@ async function analyzeControllerHandler(
       };
     }
 
-    const manualRequestSchema = extractLaravelManualRequestSchema(body);
+    const manualRequestSchema = await extractLaravelManualRequestSchema(body, classIndex);
     if (manualRequestSchema) {
       requestBody = mergeLaravelRequestBodies(requestBody, manualRequestSchema);
     }
 
     queryParameters = extractLaravelQueryParameters(body);
     headerParameters = extractLaravelHeaderParameters(body);
-    responses = await extractLaravelResponses(body, classIndex);
+    responses = await extractLaravelResponses(body, classIndex, content);
   }
 
   const result = {
@@ -815,7 +815,10 @@ function extractLaravelHeaderParameters(methodBody: string): NormalizedParameter
   }));
 }
 
-function extractLaravelManualRequestSchema(methodBody: string): SchemaObject | undefined {
+async function extractLaravelManualRequestSchema(
+  methodBody: string,
+  classIndex: Map<string, PhpClassRecord>,
+): Promise<SchemaObject | undefined> {
   const properties: Record<string, SchemaObject> = {};
 
   const accessorPatterns: Array<{ regex: RegExp; schemaFactory: () => SchemaObject; }> = [
@@ -833,6 +836,10 @@ function extractLaravelManualRequestSchema(methodBody: string): SchemaObject | u
     },
     {
       regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/g,
+      schemaFactory: () => ({ type: "boolean" }),
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "boolean" }),
     },
     {
@@ -860,7 +867,7 @@ function extractLaravelManualRequestSchema(methodBody: string): SchemaObject | u
     }
   }
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/g)) {
+  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/g)) {
     const arrayLiteral = match[1];
     if (!arrayLiteral) {
       continue;
@@ -873,6 +880,22 @@ function extractLaravelManualRequestSchema(methodBody: string): SchemaObject | u
 
       properties[fieldName] = mergeSchemaObjects(properties[fieldName], { type: "string" });
     }
+  }
+
+  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*enum\s*\(\s*['"]([^'"]+)['"]\s*,\s*([A-Za-z0-9_\\]+)::class/g)) {
+    const fieldName = match[1];
+    const enumType = match[2];
+    if (!fieldName || !enumType || fieldName.includes(".")) {
+      continue;
+    }
+
+    const enumValues = await parseLaravelEnumValues(enumType, classIndex);
+    properties[fieldName] = mergeSchemaObjects(properties[fieldName], enumValues.length > 0
+      ? {
+        type: typeof enumValues[0] === "number" ? "number" : "string",
+        enum: enumValues,
+      }
+      : { type: "string" });
   }
 
   if (Object.keys(properties).length === 0) {
@@ -930,9 +953,12 @@ function mergeSchemaObjects(
 async function extractLaravelResponses(
   methodBody: string,
   classIndex: Map<string, PhpClassRecord>,
+  controllerContent: string,
+  baseContext?: PhpExampleContext,
+  depth = 0,
 ): Promise<NormalizedResponse[]> {
   const responses = new Map<string, NormalizedResponse>();
-  const exampleContext = createPhpExampleContext(methodBody);
+  const exampleContext = createPhpExampleContext(methodBody, baseContext?.assignments);
 
   for (const jsonCall of extractReturnResponseJsonCalls(methodBody)) {
     const args = splitTopLevel(jsonCall.slice(1, -1), ",");
@@ -951,6 +977,20 @@ async function extractLaravelResponses(
     });
   }
 
+  if (depth < 2) {
+    for (const helperResponse of await extractLaravelHelperResponses(
+      methodBody,
+      classIndex,
+      controllerContent,
+      exampleContext,
+      depth,
+    )) {
+      if (!responses.has(helperResponse.statusCode)) {
+        responses.set(helperResponse.statusCode, helperResponse);
+      }
+    }
+  }
+
   for (const noContentCall of extractReturnResponseNoContentCalls(methodBody)) {
     const args = splitTopLevel(noContentCall.slice(1, -1), ",");
     const statusCode = parseLaravelStatusCode(args[0]) ?? "204";
@@ -964,6 +1004,23 @@ async function extractLaravelResponses(
     if (!responses.has(abortResponse.statusCode)) {
       responses.set(abortResponse.statusCode, abortResponse);
     }
+  }
+
+  if (hasLaravelNotFoundPattern(methodBody) && !responses.has("404")) {
+    responses.set("404", {
+      statusCode: "404",
+      description: "Inferred not found response",
+      contentType: "application/json",
+      schema: {
+        type: "object",
+        properties: {
+          message: { type: "string" },
+        },
+      },
+      example: {
+        message: "Not Found",
+      },
+    });
   }
 
   for (const exceptionResponse of extractLaravelExceptionResponses(methodBody, exampleContext)) {
@@ -1238,9 +1295,17 @@ interface PhpExampleContext {
   resolving: Set<string>;
 }
 
-function createPhpExampleContext(methodBody: string): PhpExampleContext {
+function createPhpExampleContext(
+  methodBody: string,
+  seedAssignments?: Map<string, string>,
+): PhpExampleContext {
+  const assignments = new Map(seedAssignments ?? []);
+  for (const [variableName, expression] of extractPhpVariableAssignments(methodBody)) {
+    assignments.set(variableName, expression);
+  }
+
   return {
-    assignments: extractPhpVariableAssignments(methodBody),
+    assignments,
     cache: new Map(),
     resolving: new Set(),
   };
@@ -1370,6 +1435,125 @@ function extractLaravelValidationExceptionExamples(
   }
 
   return examples;
+}
+
+async function extractLaravelHelperResponses(
+  methodBody: string,
+  classIndex: Map<string, PhpClassRecord>,
+  controllerContent: string,
+  exampleContext: PhpExampleContext,
+  depth: number,
+): Promise<NormalizedResponse[]> {
+  const responses: NormalizedResponse[] = [];
+
+  for (const statement of extractReturnStatements(methodBody)) {
+    const helperCall = parseLaravelHelperReturnStatement(statement);
+    if (!helperCall) {
+      continue;
+    }
+
+    const helperMethod = findPhpMethod(controllerContent, helperCall.methodName);
+    if (!helperMethod) {
+      continue;
+    }
+
+    const seedAssignments = new Map(exampleContext.assignments);
+    helperMethod.params.forEach((paramName, index) => {
+      const argExpression = helperCall.args[index];
+      if (argExpression) {
+        seedAssignments.set(paramName, argExpression);
+      }
+    });
+
+    responses.push(...await extractLaravelResponses(
+      helperMethod.body,
+      classIndex,
+      controllerContent,
+      createPhpExampleContext(helperMethod.body, seedAssignments),
+      depth + 1,
+    ));
+  }
+
+  return dedupeResponsesByStatusCode(responses);
+}
+
+function parseLaravelHelperReturnStatement(
+  statement: string,
+): { methodName: string; args: string[]; } | undefined {
+  const helperMatch = statement.match(/^return\s+(?:\$this->|self::)([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+  if (!helperMatch?.[1]) {
+    return undefined;
+  }
+
+  const openParenIndex = statement.indexOf("(", helperMatch[0].length - 1);
+  const argsBlock = openParenIndex >= 0 ? extractBalanced(statement, openParenIndex, "(", ")") : null;
+  if (!argsBlock) {
+    return undefined;
+  }
+
+  return {
+    methodName: helperMatch[1],
+    args: splitTopLevel(argsBlock.slice(1, -1), ","),
+  };
+}
+
+function findPhpMethod(
+  content: string,
+  methodName: string,
+): { params: string[]; body: string; } | undefined {
+  const methodMatch = new RegExp(`function\\s+${methodName}\\s*\\(([^)]*)\\)`, "m").exec(content);
+  if (!methodMatch) {
+    return undefined;
+  }
+
+  const bodyStartIndex = content.indexOf("{", methodMatch.index);
+  const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
+  if (!body) {
+    return undefined;
+  }
+
+  return {
+    params: extractPhpParamNames(methodMatch[1] ?? ""),
+    body,
+  };
+}
+
+function extractPhpParamNames(params: string): string[] {
+  return params
+    .split(",")
+    .map((param) => param.trim().match(/\$([A-Za-z_][A-Za-z0-9_]*)/)?.[1])
+    .filter((value): value is string => Boolean(value));
+}
+
+function hasLaravelNotFoundPattern(methodBody: string): boolean {
+  return /\b(?:findOrFail|firstOrFail)\s*\(/.test(methodBody);
+}
+
+async function parseLaravelEnumValues(
+  enumType: string,
+  classIndex: Map<string, PhpClassRecord>,
+): Promise<Array<string | number>> {
+  const enumRecord = classIndex.get(shortPhpClassName(enumType));
+  if (!enumRecord) {
+    return [];
+  }
+
+  const content = await fs.readFile(enumRecord.filePath, "utf8");
+  const values: Array<string | number> = [];
+
+  for (const match of content.matchAll(/\bcase\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:=\s*([^;]+))?;/g)) {
+    const rawValue = match[1]?.trim();
+    if (!rawValue) {
+      continue;
+    }
+
+    const parsed = parsePhpExampleValue(rawValue);
+    if (typeof parsed === "string" || typeof parsed === "number") {
+      values.push(parsed);
+    }
+  }
+
+  return values;
 }
 
 function dedupeParameters(parameters: NormalizedParameter[]): NormalizedParameter[] {
@@ -1618,6 +1802,10 @@ function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof 
       type: "boolean",
     },
     {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/,
+      type: "boolean",
+    },
+    {
       regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/,
       type: "array",
     },
@@ -1638,7 +1826,7 @@ function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof 
     }
   }
 
-  const onlyMatch = value.match(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/);
+  const onlyMatch = value.match(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/);
   if (onlyMatch?.[1]) {
     return Object.fromEntries(
       parsePhpStringList(onlyMatch[1]).map((fieldName) => [fieldName, buildPhpExampleForField(fieldName)]),

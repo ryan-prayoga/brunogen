@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Broaden Laravel manual request inference for `has`, `filled`, `safe()->only([...])`, and `enum(...)`
+- Infer Laravel responses through same-controller wrapper helpers and `findOrFail` / `firstOrFail` not-found paths
+- Extend Laravel fixture coverage for richer request and response stabilization cases
+
 ## v0.2.0
 
 - Add Express.js project support with mounted router, request, and response inference

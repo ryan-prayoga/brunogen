@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\UserRole;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
 
@@ -26,6 +27,10 @@ class SessionController extends Controller
         $deviceName = $request->string('device_name');
         $rememberMe = $request->boolean('remember_me');
         $scopes = $request->array('scopes');
+        $request->has('profile_photo');
+        $request->filled('nickname');
+        $request->safe()->only(['locale']);
+        $request->enum('role', UserRole::class);
         $request->only(['tenant_id']);
 
         return response()->json([

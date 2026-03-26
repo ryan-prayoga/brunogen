@@ -17,6 +17,10 @@ describe("Laravel adapter", () => {
     expect(login?.requestBody?.schema.properties?.device_name?.type).toBe("string");
     expect(login?.requestBody?.schema.properties?.remember_me?.type).toBe("boolean");
     expect(login?.requestBody?.schema.properties?.scopes?.type).toBe("array");
+    expect(login?.requestBody?.schema.properties?.profile_photo?.type).toBe("boolean");
+    expect(login?.requestBody?.schema.properties?.nickname?.type).toBe("boolean");
+    expect(login?.requestBody?.schema.properties?.locale?.type).toBe("string");
+    expect(login?.requestBody?.schema.properties?.role?.enum).toEqual(["owner", "member"]);
     expect(login?.requestBody?.schema.properties?.tenant_id?.type).toBe("string");
     expect(login?.responses[0]?.statusCode).toBe("201");
     expect(login?.responses[0]?.example).toEqual({
@@ -83,11 +87,12 @@ describe("Laravel adapter", () => {
     });
 
     const resourceShow = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/projects/{project}" && endpoint.method === "get");
+    const resourceShowSuccess = resourceShow?.responses.find((response) => response.statusCode === "200");
     expect(resourceShow?.parameters).toEqual([
       expect.objectContaining({ name: "project", in: "path" }),
     ]);
-    expect(resourceShow?.responses[0]?.schema?.properties?.data?.type).toBe("object");
-    expect(resourceShow?.responses[0]?.example).toEqual({
+    expect(resourceShowSuccess?.schema?.properties?.data?.type).toBe("object");
+    expect(resourceShowSuccess?.example).toEqual({
       data: {
         id: 1,
         name: "Jane Doe",
@@ -97,6 +102,12 @@ describe("Laravel adapter", () => {
         trace_id: "trace_123",
       },
     });
-    expect(resourceShow?.responses[0]?.schema?.properties?.meta?.type).toBe("object");
+    expect(resourceShowSuccess?.schema?.properties?.meta?.type).toBe("object");
+    expect(resourceShow?.responses).toContainEqual(expect.objectContaining({
+      statusCode: "404",
+      example: {
+        message: "Not Found",
+      },
+    }));
   });
 });
