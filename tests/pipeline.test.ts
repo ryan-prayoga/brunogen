@@ -25,12 +25,17 @@ describe("Generation pipeline", () => {
       path.join(workspace, config.output.brunoDir),
     );
     const requestFiles = await fs.readdir(path.join(workspace, "out/bruno/user"));
+    const loginRequest = await fs.readFile(path.join(workspace, "out/bruno/session/sessioncontrollerstore.bru"), "utf8");
 
     expect(await fileExists(path.join(workspace, "out/openapi.yaml"))).toBe(true);
     expect(await fileExists(path.join(workspace, "out/bruno/bruno.json"))).toBe(true);
     expect(await fileExists(path.join(workspace, "out/bruno/environments/local.bru"))).toBe(true);
+    expect(await fileExists(path.join(workspace, "out/bruno/session/sessioncontrollerstore.bru"))).toBe(true);
     expect(await fileExists(path.join(workspace, "out/bruno/user/usercontrollerindex.bru"))).toBe(true);
     expect(await fileExists(path.join(workspace, "out/bruno/user/usercontrollerindexgetapiprojects.bru"))).toBe(true);
     expect(requestFiles.filter((file) => file.endsWith(".bru"))).toHaveLength(4);
+    expect(loginRequest).toContain("example {");
+    expect(loginRequest).toContain("code: 201");
+    expect(loginRequest).toContain("\"device_name\": \"ios-simulator\"");
   });
 });
