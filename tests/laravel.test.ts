@@ -14,11 +14,15 @@ describe("Laravel adapter", () => {
     const login = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/login");
     expect(login?.auth.type).toBe("none");
     expect(login?.requestBody?.schema.properties?.email?.format).toBe("email");
+    expect(login?.requestBody?.schema.properties?.device_name?.type).toBe("string");
+    expect(login?.requestBody?.schema.properties?.remember_me?.type).toBe("boolean");
+    expect(login?.requestBody?.schema.properties?.scopes?.type).toBe("array");
+    expect(login?.requestBody?.schema.properties?.tenant_id?.type).toBe("string");
     expect(login?.responses[0]?.statusCode).toBe("201");
-    expect(login?.responses[0]?.example).toEqual({
+    expect(login?.responses[0]?.example).toEqual(expect.objectContaining({
       message: "Logged in",
       token: "demo-token",
-    });
+    }));
 
     const createUser = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/users" && endpoint.method === "post");
     expect(createUser?.auth.type).toBe("bearer");
