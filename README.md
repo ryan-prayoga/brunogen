@@ -4,7 +4,7 @@
 
 Brunogen scans a Laravel, Express.js, or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
 
-Early public alpha. Laravel is the primary happy path today. Go support exists, but remains experimental and heuristic.
+Early public alpha. Laravel is the primary happy path today. Express.js and Go support exist, but remain experimental and heuristic.
 
 CI runs `npm run verify` on pushes to `main` and on pull requests. That includes the Laravel golden snapshot test for the checked-in demo path.
 
@@ -75,6 +75,27 @@ Default output:
 
 - `.brunogen/openapi.yaml`
 - `.brunogen/bruno/`
+
+## Express Quickstart
+
+The Express fixture used by the test suite lives in `tests/fixtures/express`.
+It covers mounted routers, route chains, middleware-based auth hints, and basic body/query/header/response inference.
+
+```bash
+npm install
+npm run build
+
+cd tests/fixtures/express
+node ../../../dist/cli.js generate
+```
+
+Expected result:
+
+```text
+Generated 3 endpoints.
+OpenAPI: .../tests/fixtures/express/.brunogen/openapi.yaml
+Bruno: .../tests/fixtures/express/.brunogen/bruno
+```
 
 ## Example Input Project Shape
 
@@ -275,21 +296,27 @@ body:json {
 | Auth inference | Partial | Middleware and OpenAPI security are inferred heuristically |
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
 | Bruno export | Supported | Collection, requests, environments, and baseline auth blocks |
+| Express route scanning | Experimental | Handles `express()` / `Router()`, `use()` mounts, and `route()` chains |
+| Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers |
 | Go Fiber scanning | Experimental | Route and request inference are heuristic |
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
 | Go Echo scanning | Experimental | Route and request inference are heuristic |
 | Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns |
 | Laravel response inference | Partial | Straightforward `return [...]`, `response()->json([...], status)`, and `noContent()` patterns |
+| Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, and `sendStatus()` patterns |
 | Go response inference | Limited | Response helper inference is still heuristic and often generic |
-| Watch mode | Supported | Regenerates on `.php` and `.go` changes |
+| Watch mode | Supported | Regenerates on `.php`, `.go`, `.js`, `.cjs`, `.mjs`, and `.ts` changes |
 
 ## Known Limitations
 
 - This is not production-hardened. It is an early public alpha.
 - Laravel parsing is regex-driven, not full AST analysis.
+- Express parsing is also regex-driven, not full AST analysis.
 - Complex dynamic route declarations may be skipped with warnings.
+- Complex Express router factories, metaprogrammed middleware, and indirect exports may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects, and conditional rules are not fully inferred.
 - Laravel response inference currently targets straightforward array and `response()->json()` return paths.
+- Express request and response inference currently targets straightforward `req.body` / `req.query` access and direct `res.*()` calls.
 - Go support is intentionally labeled experimental.
 - Go route parsing can miss unusual middleware signatures or custom router abstractions.
 - Go response schemas are best-effort and often generic around nested `data` payloads.
@@ -298,6 +325,7 @@ body:json {
 ## Roadmap
 
 - Stabilize the Laravel path as the default demoable experience
+- Broaden and harden the Express adapter without losing the current lightweight scanner model
 - Improve Laravel and Go response inference without breaking the current OpenAPI-first pipeline
 - Reduce Go false positives and document supported code patterns more precisely
 - Add more canonical fixtures before broadening framework claims
@@ -315,3 +343,30 @@ Related docs:
 - [CHANGELOG.md](CHANGELOG.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [docs/release-checklist.md](docs/release-checklist.md)
+
+## npm Publishing
+
+This repository includes a dedicated npm publish workflow at `.github/workflows/publish-npm.yml`.
+It is designed for npm Trusted Publisher with GitHub Actions OIDC, so it does not need an `NPM_TOKEN`.
+
+Trusted Publisher form values for the current repository:
+
+- Publisher: `GitHub Actions`
+- Organization or user: `ryan-prayoga`
+- Repository: `brunogen`
+- Workflow filename: `publish-npm.yml`
+- Environment name: `npm`
+
+Recommended release flow:
+
+1. Update `package.json` version and changelog.
+2. Push the commit to `main`.
+3. Create or publish a GitHub Release for the version tag.
+4. The `Publish To npm` workflow will run and publish `brunogen` to npm.
+
+Notes:
+
+- The workflow uses the GitHub Actions environment `npm`. If you want approvals or branch restrictions, configure that environment in GitHub repository settings.
+- Keep the Trusted Publisher fields aligned exactly with the repository owner, repository name, workflow filename, and environment name above.
+- This package is public and unscoped, so the workflow publishes the existing `brunogen` package name from `package.json`.
+- `.github/workflows/publish-github-packages.yml` remains the separate workflow for GitHub Packages.
