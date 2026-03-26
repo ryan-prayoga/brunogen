@@ -41,10 +41,14 @@ class UserController extends Controller
 
     public function show(Request $request)
     {
-        return new ProjectResource((object) [
+        return ProjectResource::make((object) [
             'id' => 1,
             'name' => 'Launchpad',
             'owner_email' => 'owner@example.com',
+        ])->additional([
+            'meta' => [
+                'trace_id' => 'trace_123',
+            ],
         ]);
     }
 }

@@ -75,6 +75,10 @@ describe("Laravel adapter", () => {
         name: "Jane Doe",
         owner_email: "user@example.com",
       },
+      meta: {
+        trace_id: "trace_123",
+      },
     });
+    expect(resourceShow?.responses[0]?.schema?.properties?.meta?.type).toBe("object");
   });
 });
