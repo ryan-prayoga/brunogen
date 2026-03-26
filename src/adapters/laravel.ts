@@ -924,6 +924,7 @@ function mergeSchemaObjects(
 
 function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
   const responses = new Map<string, NormalizedResponse>();
+  const exampleContext = createPhpExampleContext(methodBody);
 
   for (const jsonCall of extractReturnResponseJsonCalls(methodBody)) {
     const args = splitTopLevel(jsonCall.slice(1, -1), ",");
@@ -931,7 +932,7 @@ function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
       continue;
     }
 
-    const example = parsePhpExampleValue(args[0]);
+    const example = parsePhpExampleValue(args[0], exampleContext);
     const statusCode = parseLaravelStatusCode(args[1]) ?? "200";
     responses.set(statusCode, {
       statusCode,
@@ -952,7 +953,7 @@ function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
   }
 
   for (const arrayLiteral of extractDirectReturnArrays(methodBody)) {
-    const example = parsePhpExampleValue(arrayLiteral);
+    const example = parsePhpExampleValue(arrayLiteral, exampleContext);
     const statusCode = "200";
     if (!responses.has(statusCode)) {
       responses.set(statusCode, {
@@ -966,6 +967,54 @@ function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
   }
 
   return [...responses.values()];
+}
+
+const unresolvedPhpExample = Symbol("unresolved-php-example");
+
+interface PhpExampleContext {
+  assignments: Map<string, string>;
+  cache: Map<string, unknown | typeof unresolvedPhpExample>;
+  resolving: Set<string>;
+}
+
+function createPhpExampleContext(methodBody: string): PhpExampleContext {
+  return {
+    assignments: extractPhpVariableAssignments(methodBody),
+    cache: new Map(),
+    resolving: new Set(),
+  };
+}
+
+function extractPhpVariableAssignments(methodBody: string): Map<string, string> {
+  const assignments = new Map<string, string>();
+
+  for (const match of methodBody.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/g)) {
+    const variableName = match[1];
+    const matchIndex = match.index ?? -1;
+    if (!variableName || matchIndex < 0) {
+      continue;
+    }
+
+    const equalsIndex = matchIndex + match[0].length - 1;
+    const nextCharacter = methodBody[equalsIndex + 1];
+    if (nextCharacter === "=" || nextCharacter === ">") {
+      continue;
+    }
+
+    const statementEnd = findTopLevelStatementTerminator(methodBody, equalsIndex + 1);
+    if (statementEnd < 0) {
+      continue;
+    }
+
+    const expression = methodBody.slice(equalsIndex + 1, statementEnd).trim();
+    if (!expression) {
+      continue;
+    }
+
+    assignments.set(variableName, expression);
+  }
+
+  return assignments;
 }
 
 function extractReturnResponseJsonCalls(methodBody: string): string[] {
@@ -1079,8 +1128,36 @@ function parseLaravelStatusCode(rawValue?: string): string | undefined {
   return statusMap[trimmed];
 }
 
-function parsePhpExampleValue(rawValue: string): unknown {
-  const value = rawValue.trim();
+function parsePhpExampleValue(rawValue: string, context?: PhpExampleContext): unknown {
+  const value = resolvePhpExampleValue(rawValue, context);
+  return value === unresolvedPhpExample ? {} : value;
+}
+
+function resolvePhpExampleValue(
+  rawValue: string,
+  context?: PhpExampleContext,
+): unknown | typeof unresolvedPhpExample {
+  const value = unwrapPhpParentheses(rawValue.trim());
+  if (!value) {
+    return unresolvedPhpExample;
+  }
+
+  const nullCoalesceOperands = splitTopLevelSequence(value, "??");
+  if (nullCoalesceOperands.length > 1) {
+    for (const operand of nullCoalesceOperands) {
+      const resolvedOperand = resolvePhpExampleValue(operand, context);
+      if (resolvedOperand !== unresolvedPhpExample && resolvedOperand !== null) {
+        return resolvedOperand;
+      }
+    }
+
+    return null;
+  }
+
+  const requestAccessorExample = inferLaravelRequestAccessorExample(value);
+  if (requestAccessorExample !== unresolvedPhpExample) {
+    return requestAccessorExample;
+  }
 
   const stringValue = parsePhpString(value);
   if (stringValue !== undefined) {
@@ -1108,7 +1185,7 @@ function parsePhpExampleValue(rawValue: string): unknown {
     const isAssoc = entries.some((entry) => hasTopLevelArrow(entry));
 
     if (!isAssoc) {
-      return entries.filter(Boolean).map((entry) => parsePhpExampleValue(entry));
+      return entries.filter(Boolean).map((entry) => parsePhpExampleValue(entry, context));
     }
 
     return Object.fromEntries(entries
@@ -1116,15 +1193,180 @@ function parsePhpExampleValue(rawValue: string): unknown {
       .map((entry) => {
         const [rawKey, rawEntryValue] = splitTopLevelArrow(entry);
         const parsedKey = parsePhpString(rawKey.trim()) ?? rawKey.trim();
-        return [String(parsedKey), parsePhpExampleValue(rawEntryValue)];
+        return [String(parsedKey), parsePhpExampleValue(rawEntryValue, context)];
       }));
   }
 
-  if (value.startsWith("$")) {
-    return {};
+  const directVariableMatch = value.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (directVariableMatch?.[1]) {
+    return resolvePhpVariableExample(directVariableMatch[1], context);
   }
 
-  return {};
+  const propertyAccessMatch = value.match(/^\$[A-Za-z_][A-Za-z0-9_]*->([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (propertyAccessMatch?.[1]) {
+    return buildPhpExampleForField(propertyAccessMatch[1]);
+  }
+
+  return unresolvedPhpExample;
+}
+
+function resolvePhpVariableExample(
+  variableName: string,
+  context?: PhpExampleContext,
+): unknown | typeof unresolvedPhpExample {
+  if (!context) {
+    return unresolvedPhpExample;
+  }
+
+  const cached = context.cache.get(variableName);
+  if (cached !== undefined) {
+    return cached;
+  }
+
+  if (context.resolving.has(variableName)) {
+    return unresolvedPhpExample;
+  }
+
+  const expression = context.assignments.get(variableName);
+  if (!expression) {
+    return unresolvedPhpExample;
+  }
+
+  context.resolving.add(variableName);
+  const resolved = resolvePhpExampleValue(expression, context);
+  context.resolving.delete(variableName);
+  context.cache.set(variableName, resolved);
+  return resolved;
+}
+
+function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof unresolvedPhpExample {
+  const value = rawValue.trim();
+  const typedPatterns: Array<{ regex: RegExp; type: "string" | "integer" | "number" | "boolean" | "array" | "date-time"; }> = [
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:input|get|post|json|string|query|header)\s*\(\s*['"]([^'"]+)['"]/,
+      type: "string",
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*integer\s*\(\s*['"]([^'"]+)['"]/,
+      type: "integer",
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:float|double)\s*\(\s*['"]([^'"]+)['"]/,
+      type: "number",
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/,
+      type: "boolean",
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/,
+      type: "array",
+    },
+    {
+      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*date\s*\(\s*['"]([^'"]+)['"]/,
+      type: "date-time",
+    },
+    {
+      regex: /request\s*\(\s*['"]([^'"]+)['"]\s*\)/,
+      type: "string",
+    },
+  ];
+
+  for (const pattern of typedPatterns) {
+    const match = value.match(pattern.regex);
+    if (match?.[1]) {
+      return buildPhpExampleForField(match[1], pattern.type);
+    }
+  }
+
+  const onlyMatch = value.match(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/);
+  if (onlyMatch?.[1]) {
+    return Object.fromEntries(
+      parsePhpStringList(onlyMatch[1]).map((fieldName) => [fieldName, buildPhpExampleForField(fieldName)]),
+    );
+  }
+
+  return unresolvedPhpExample;
+}
+
+function buildPhpExampleForField(
+  fieldName: string,
+  type: "string" | "integer" | "number" | "boolean" | "array" | "date-time" = "string",
+): unknown {
+  const normalized = fieldName.trim().toLowerCase();
+
+  if (type === "integer") {
+    return 1;
+  }
+
+  if (type === "number") {
+    return 1.5;
+  }
+
+  if (type === "boolean") {
+    return true;
+  }
+
+  if (type === "array") {
+    return [buildPhpExampleForField(singularize(fieldName))];
+  }
+
+  if (type === "date-time") {
+    return "2026-01-01T00:00:00Z";
+  }
+
+  if (normalized.includes("email")) {
+    return "user@example.com";
+  }
+
+  if (normalized === "name") {
+    return "Jane Doe";
+  }
+
+  if (normalized.includes("device")) {
+    return "ios-simulator";
+  }
+
+  if (normalized.includes("token")) {
+    return fieldName === fieldName.toUpperCase() ? `${fieldName}_VALUE` : "token";
+  }
+
+  if (normalized === "page" || normalized.endsWith("_page")) {
+    return 1;
+  }
+
+  if (normalized === "id" || normalized.endsWith("_id")) {
+    return 1;
+  }
+
+  if (normalized.includes("remember") || normalized.startsWith("is_") || normalized.startsWith("has_")) {
+    return true;
+  }
+
+  if (normalized.includes("scope")) {
+    return "read";
+  }
+
+  if (normalized.includes("date") || normalized.endsWith("_at")) {
+    return "2026-01-01T00:00:00Z";
+  }
+
+  return fieldName;
+}
+
+function unwrapPhpParentheses(input: string): string {
+  let current = input.trim();
+
+  while (current.startsWith("(") && current.endsWith(")")) {
+    const wrapped = extractBalanced(current, 0, "(", ")");
+    if (wrapped !== current) {
+      break;
+    }
+
+    current = current.slice(1, -1).trim();
+  }
+
+  return current;
 }
 
 function inferSchemaFromExample(example: unknown): SchemaObject {
@@ -1365,6 +1607,77 @@ function extractBalanced(input: string, startIndex: number, open: string, close:
   return null;
 }
 
+function findTopLevelStatementTerminator(input: string, startIndex: number): number {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+
+  for (let index = startIndex; index < input.length; index += 1) {
+    const character = input[index];
+
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (character === "'" || character === "\"") {
+      if (quote === character) {
+        quote = null;
+      } else if (!quote) {
+        quote = character;
+      }
+      continue;
+    }
+
+    if (quote) {
+      continue;
+    }
+
+    if (character === "(") {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (character === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (character === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+
+    if (character === "]") {
+      bracketDepth -= 1;
+      continue;
+    }
+
+    if (character === "{") {
+      braceDepth += 1;
+      continue;
+    }
+
+    if (character === "}") {
+      braceDepth -= 1;
+      continue;
+    }
+
+    if (character === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+      return index;
+    }
+  }
+
+  return -1;
+}
+
 function splitTopLevel(input: string, separator: string): string[] {
   const results: string[] = [];
   let current = "";
@@ -1432,6 +1745,78 @@ function splitTopLevel(input: string, separator: string): string[] {
   }
 
   return results;
+}
+
+function splitTopLevelSequence(input: string, sequence: string): string[] {
+  const results: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: "'" | "\"" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      current += character;
+      escaped = true;
+      continue;
+    }
+
+    if (character === "'" || character === "\"") {
+      if (quote === character) {
+        quote = null;
+      } else if (!quote) {
+        quote = character;
+      }
+      current += character;
+      continue;
+    }
+
+    if (!quote) {
+      if (character === "(") {
+        parenDepth += 1;
+      } else if (character === ")") {
+        parenDepth -= 1;
+      } else if (character === "[") {
+        bracketDepth += 1;
+      } else if (character === "]") {
+        bracketDepth -= 1;
+      } else if (character === "{") {
+        braceDepth += 1;
+      } else if (character === "}") {
+        braceDepth -= 1;
+      } else if (
+        input.startsWith(sequence, index) &&
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        braceDepth === 0
+      ) {
+        if (current.trim()) {
+          results.push(current.trim());
+        }
+        current = "";
+        index += sequence.length - 1;
+        continue;
+      }
+    }
+
+    current += character;
+  }
+
+  if (current.trim()) {
+    results.push(current.trim());
+  }
+
+  return results.length > 0 ? results : [input.trim()];
 }
 
 function splitOnce(input: string, delimiter: string): [string, string] {
