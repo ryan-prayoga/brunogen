@@ -9,6 +9,9 @@ class UserController extends Controller
 {
     public function index()
     {
+        $page = request()->query('page');
+        $token = request()->header('TTOKEN');
+
         return [
             'data' => [
                 [
@@ -17,7 +20,8 @@ class UserController extends Controller
                 ],
             ],
             'meta' => [
-                'page' => 1,
+                'page' => $page ?? 1,
+                'token' => $token,
             ],
         ];
     }

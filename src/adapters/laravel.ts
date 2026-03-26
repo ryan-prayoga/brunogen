@@ -7,6 +7,7 @@ import type {
   HttpMethod,
   NormalizedAuth,
   NormalizedEndpoint,
+  NormalizedParameter,
   NormalizedProject,
   NormalizedRequestBody,
   NormalizedResponse,
@@ -26,6 +27,8 @@ interface GroupContext {
 
 interface ControllerAnalysis {
   requestBody?: NormalizedRequestBody;
+  queryParameters: NormalizedParameter[];
+  headerParameters: NormalizedParameter[];
   responses: NormalizedResponse[];
   warnings: GenerationWarning[];
 }
@@ -229,7 +232,11 @@ async function parseConcreteRoute(
   const analysis = await analyzeControllerHandler(handler, classIndex, controllerCache);
   const normalizedPath = normalizeLaravelPath(joinRoutePath(context.prefixes, rawPath));
   const inferredAuth = inferAuthFromMiddleware(context.middleware);
-  const parameters = extractPathParameters(normalizedPath);
+  const parameters = dedupeParameters([
+    ...extractPathParameters(normalizedPath),
+    ...analysis.queryParameters.filter((parameter) => !normalizedPath.includes(`{${parameter.name}}`)),
+    ...analysis.headerParameters,
+  ]);
 
   return {
     endpoint: {
@@ -320,7 +327,11 @@ async function parseResourceRoute(
       operationId: buildOperationId(action.method, normalizedPath, handler),
       summary: buildSummary(action.method, normalizedPath, handler),
       tags: [inferTag(normalizedPath, controller)],
-      parameters: extractPathParameters(normalizedPath),
+      parameters: dedupeParameters([
+        ...extractPathParameters(normalizedPath),
+        ...analysis.queryParameters.filter((parameter) => !normalizedPath.includes(`{${parameter.name}}`)),
+        ...analysis.headerParameters,
+      ]),
       requestBody: analysis.requestBody,
       responses: analysis.responses.length > 0 ? analysis.responses : buildDefaultResponses(action.method),
       auth: inferAuthFromMiddleware(context.middleware),
@@ -375,7 +386,7 @@ async function analyzeControllerHandler(
   controllerCache: Map<string, ControllerAnalysis>,
 ): Promise<ControllerAnalysis> {
   if (!handler?.controller || !handler.action) {
-    return { responses: [], warnings: [] };
+    return { queryParameters: [], headerParameters: [], responses: [], warnings: [] };
   }
 
   const cacheKey = `${handler.controller}:${handler.action}`;
@@ -390,7 +401,7 @@ async function analyzeControllerHandler(
       code: "LARAVEL_CONTROLLER_NOT_FOUND",
       message: `Could not locate controller ${handler.controller} while inferring request schema.`,
     };
-    const result = { responses: [], warnings: [warning] };
+    const result = { queryParameters: [], headerParameters: [], responses: [], warnings: [warning] };
     controllerCache.set(cacheKey, result);
     return result;
   }
@@ -403,7 +414,7 @@ async function analyzeControllerHandler(
       message: `Could not locate ${handler.controller}::${handler.action} while inferring request schema.`,
       location: { file: controllerRecord.filePath },
     };
-    const result = { responses: [], warnings: [warning] };
+    const result = { queryParameters: [], headerParameters: [], responses: [], warnings: [warning] };
     controllerCache.set(cacheKey, result);
     return result;
   }
@@ -414,6 +425,8 @@ async function analyzeControllerHandler(
   const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
   const warnings: GenerationWarning[] = [];
   let requestBody: NormalizedRequestBody | undefined;
+  let queryParameters: NormalizedParameter[] = [];
+  let headerParameters: NormalizedParameter[] = [];
   let responses: NormalizedResponse[] = [];
 
   if (firstRequestType && firstRequestType !== "Request") {
@@ -435,10 +448,18 @@ async function analyzeControllerHandler(
       };
     }
 
+    queryParameters = extractLaravelQueryParameters(body);
+    headerParameters = extractLaravelHeaderParameters(body);
     responses = extractLaravelResponses(body);
   }
 
-  const result = { requestBody, responses, warnings };
+  const result = {
+    requestBody,
+    queryParameters,
+    headerParameters,
+    responses,
+    warnings,
+  };
   controllerCache.set(cacheKey, result);
   return result;
 }
@@ -744,6 +765,46 @@ function buildDefaultResponses(method: HttpMethod): NormalizedResponse[] {
   }];
 }
 
+function extractLaravelQueryParameters(methodBody: string): NormalizedParameter[] {
+  const parameters = new Set<string>();
+
+  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*query\s*\(\s*['"]([^'"]+)['"]/g)) {
+    if (match[1]) {
+      parameters.add(match[1]);
+    }
+  }
+
+  return [...parameters].map((name) => ({
+    name,
+    in: "query",
+    required: false,
+    schema: { type: "string" },
+  }));
+}
+
+function extractLaravelHeaderParameters(methodBody: string): NormalizedParameter[] {
+  const parameters = new Set<string>();
+
+  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*header\s*\(\s*['"]([^'"]+)['"]/g)) {
+    if (match[1]) {
+      parameters.add(match[1]);
+    }
+  }
+
+  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*headers\s*->\s*get\s*\(\s*['"]([^'"]+)['"]/g)) {
+    if (match[1]) {
+      parameters.add(match[1]);
+    }
+  }
+
+  return [...parameters].map((name) => ({
+    name,
+    in: "header",
+    required: false,
+    schema: { type: "string" },
+  }));
+}
+
 function extractLaravelResponses(methodBody: string): NormalizedResponse[] {
   const responses = new Map<string, NormalizedResponse>();
 
@@ -811,6 +872,19 @@ function extractReturnResponseJsonCalls(methodBody: string): string[] {
   }
 
   return results;
+}
+
+function dedupeParameters(parameters: NormalizedParameter[]): NormalizedParameter[] {
+  const seen = new Set<string>();
+  return parameters.filter((parameter) => {
+    const key = `${parameter.in}:${parameter.name}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 }
 
 function extractReturnResponseNoContentCalls(methodBody: string): string[] {

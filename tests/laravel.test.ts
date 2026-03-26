@@ -35,6 +35,16 @@ describe("Laravel adapter", () => {
       },
     });
 
+    const listUsers = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/users" && endpoint.method === "get");
+    expect(listUsers?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(listUsers?.parameters).toContainEqual(expect.objectContaining({
+      name: "TTOKEN",
+      in: "header",
+    }));
+
     const resourceShow = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/projects/{project}" && endpoint.method === "get");
     expect(resourceShow?.parameters).toEqual([
       expect.objectContaining({ name: "project", in: "path" }),
