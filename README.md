@@ -422,4 +422,3 @@ Notes:
 - The workflow uses the GitHub Actions environment `npm`. If you want approvals or branch restrictions, configure that environment in GitHub repository settings.
 - Keep the Trusted Publisher fields aligned exactly with the repository owner, repository name, workflow filename, and environment name above.
 - This package is public and unscoped, so the workflow publishes the existing `brunogen` package name from `package.json`.
-- `.github/workflows/publish-github-packages.yml` remains the separate workflow for GitHub Packages.
