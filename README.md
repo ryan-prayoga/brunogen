@@ -12,24 +12,27 @@ Brunogen is already useful for real codebases that stay close to common framewor
   <tr>
     <td align="center" valign="top">
       <strong>Laravel</strong><br />
-      <a href="docs/demo/laravel-happy-path/README.md">
+      <a href="docs/assets/preview-laravel.png">
         <img src="docs/assets/preview-laravel.png" alt="Laravel output preview" />
       </a><br />
-      <sub>FormRequest + Resource response</sub>
+      <sub>FormRequest + Resource response</sub><br />
+      <sub><a href="docs/demo/laravel-happy-path/README.md">Open Laravel demo</a></sub>
     </td>
     <td align="center" valign="top">
       <strong>Express</strong><br />
-      <a href="docs/demo/express-happy-path/README.md">
+      <a href="docs/assets/preview-express.png">
         <img src="docs/assets/preview-express.png" alt="Express output preview" />
       </a><br />
-      <sub>Mounted router + local response helper</sub>
+      <sub>Mounted router + local response helper</sub><br />
+      <sub><a href="docs/demo/express-happy-path/README.md">Open Express demo</a></sub>
     </td>
     <td align="center" valign="top">
       <strong>Go</strong><br />
-      <a href="docs/demo/go-happy-path/README.md">
+      <a href="docs/assets/preview-go.png">
         <img src="docs/assets/preview-go.png" alt="Go output preview" />
       </a><br />
-      <sub>Gin bind + direct JSON response</sub>
+      <sub>Gin bind + direct JSON response</sub><br />
+      <sub><a href="docs/demo/go-happy-path/README.md">Open Go demo</a></sub>
     </td>
   </tr>
 </table>
