@@ -50,16 +50,31 @@ paths:
                   type: boolean
                 name:
                   type: string
+                  maxLength: 255
                 email:
                   type: string
+                  format: email
                 age:
                   type: integer
+                  minimum: 18
+                  default: 18
                 role:
                   type: string
+                  default: user
+                  enum:
+                    - user
+                    - admin
                 tags:
                   type: array
                   items:
                     type: string
+                  default: []
+                status:
+                  type: string
+                  default: active
+                  enum:
+                    - active
+                    - inactive
               required:
                 - name
                 - email
