@@ -21,6 +21,7 @@ export async function runDoctor(cwd: string, config: BrunogenConfig): Promise<Do
     `bruno output: ${path.resolve(cwd, config.output.brunoDir)}`,
     `artisan: ${await fileExists(path.join(cwd, "artisan")) ? "yes" : "no"}`,
     `go.mod: ${await fileExists(path.join(cwd, "go.mod")) ? "yes" : "no"}`,
+    `package.json: ${await fileExists(path.join(cwd, "package.json")) ? "yes" : "no"}`,
   ];
 
   for (const warning of detection.warnings) {

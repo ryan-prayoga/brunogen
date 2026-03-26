@@ -15,6 +15,12 @@ interface ComposerJson {
   require?: Record<string, string>;
 }
 
+interface PackageJson {
+  name?: string;
+  dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
+}
+
 export async function detectFramework(root: string, preferred: SupportedFramework | "auto"): Promise<DetectionResult> {
   if (preferred !== "auto") {
     return {
@@ -43,9 +49,17 @@ export async function detectFramework(root: string, preferred: SupportedFramewor
     };
   }
 
+  if (await isExpressProject(root)) {
+    return {
+      framework: "express",
+      projectName: await inferProjectName(root, "express"),
+      warnings,
+    };
+  }
+
   warnings.push({
     code: "FRAMEWORK_NOT_DETECTED",
-    message: "Could not detect a supported framework. Supported targets are Laravel, Gin, Fiber, and Echo.",
+    message: "Could not detect a supported framework. Supported targets are Laravel, Gin, Fiber, Echo, and Express.",
   });
 
   return {
@@ -118,6 +132,41 @@ async function detectGoFramework(root: string): Promise<SupportedFramework | nul
   return null;
 }
 
+async function isExpressProject(root: string): Promise<boolean> {
+  const packageJsonPath = path.join(root, "package.json");
+
+  if (await fileExists(packageJsonPath)) {
+    try {
+      const packageJson = await readJsonFile<PackageJson>(packageJsonPath);
+      if (packageJson.dependencies?.express || packageJson.devDependencies?.express) {
+        return true;
+      }
+    } catch {
+      // Fall through to source scan.
+    }
+  }
+
+  const sourceFiles = await listFiles(
+    root,
+    (filePath) => /\.(?:[cm]?js|ts)$/.test(filePath) && !filePath.endsWith(".d.ts"),
+    { ignoreDirectories: ["node_modules", ".git", "dist", "coverage"] },
+  );
+
+  for (const filePath of sourceFiles) {
+    const content = await fs.readFile(filePath, "utf8");
+    if (
+      content.includes(`from "express"`)
+      || content.includes(`from 'express'`)
+      || content.includes(`require("express")`)
+      || content.includes(`require('express')`)
+    ) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
 async function inferProjectName(root: string, framework: SupportedFramework): Promise<string> {
   if (framework === "laravel") {
     const composerPath = path.join(root, "composer.json");
@@ -126,6 +175,20 @@ async function inferProjectName(root: string, framework: SupportedFramework): Pr
         const composer = await readJsonFile<ComposerJson>(composerPath);
         if (composer.name) {
           return composer.name;
+        }
+      } catch {
+        return path.basename(root);
+      }
+    }
+  }
+
+  if (framework === "express") {
+    const packageJsonPath = path.join(root, "package.json");
+    if (await fileExists(packageJsonPath)) {
+      try {
+        const packageJson = await readJsonFile<PackageJson>(packageJsonPath);
+        if (packageJson.name) {
+          return packageJson.name;
         }
       } catch {
         return path.basename(root);

@@ -8,7 +8,7 @@ import type { BrunogenConfig } from "./model";
 
 const configSchema = z.object({
   version: z.literal(1).default(1),
-  framework: z.enum(["auto", "laravel", "gin", "fiber", "echo"]).default("auto"),
+  framework: z.enum(["auto", "laravel", "gin", "fiber", "echo", "express"]).default("auto"),
   inputRoot: z.string().default("."),
   output: z.object({
     openapiFile: z.string().default(".brunogen/openapi.yaml"),

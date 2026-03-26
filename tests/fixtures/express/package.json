@@ -1,0 +1,7 @@
+{
+  "name": "acme/express-demo",
+  "private": true,
+  "dependencies": {
+    "express": "^4.19.2"
+  }
+}

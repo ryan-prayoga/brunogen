@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ryan-prayoga/brunogen/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/ryan-prayoga/brunogen/actions/workflows/ci.yml)
 
-Brunogen scans a Laravel or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
+Brunogen scans a Laravel, Express.js, or Go API codebase, normalizes what it finds into OpenAPI, and emits a Bruno collection you can try immediately.
 
 Early public alpha. Laravel is the primary happy path today. Go support exists, but remains experimental and heuristic.
 
@@ -34,6 +34,7 @@ OpenAPI is the internal source of truth after scanning. Bruno is the output targ
 - Laravel request schema inference from FormRequest rules and simple inline validation
 - Bruno collection generation with environment files and baseline bearer/basic/api-key auth support
 - OpenAPI generation and validation before export
+- Express.js scanning in experimental mode for `express()`/`Router()`, mounted routers, basic handler imports, and heuristic body/query/header/response inference
 - Go Gin, Fiber, and Echo scanning in experimental mode
 
 ## Laravel-First Quickstart
