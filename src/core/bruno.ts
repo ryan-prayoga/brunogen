@@ -18,7 +18,37 @@ interface OpenApiOperation {
   requestBody?: {
     content?: Record<string, { schema?: SchemaObject; }>;
   };
+  responses?: Record<string, {
+    description?: string;
+    content?: Record<string, {
+      schema?: SchemaObject;
+      example?: unknown;
+      examples?: Record<string, {
+        summary?: string;
+        description?: string;
+        value?: unknown;
+      }>;
+    }>;
+  }>;
   security?: Array<Record<string, string[]>>;
+}
+
+interface BrunoRequestExampleData {
+  url: string;
+  method: string;
+  bodyMode?: "json" | "form-urlencoded" | "multipart-form";
+  queryParams: Array<{ name: string; value: string; }>;
+  pathParams: Array<{ name: string; value: string; }>;
+  headers: Array<{ name: string; value: string; }>;
+  bodyContent?: string;
+}
+
+interface BrunoResponseExampleData {
+  name: string;
+  description?: string;
+  statusCode: string;
+  contentType?: string;
+  body?: unknown;
 }
 
 export async function writeOpenApiFile(openApi: Record<string, unknown>, outputFile: string): Promise<void> {
@@ -173,6 +203,21 @@ function renderRequestFile(input: {
     lines.push("}");
   }
 
+  const requestExample = buildBrunoRequestExampleData({
+    pathname,
+    method,
+    contentType,
+    requestBodySchema,
+    pathParameters,
+    queryParameters,
+    headers,
+  });
+  const responseExamples = extractBrunoResponseExamples(operation);
+  for (const responseExample of responseExamples) {
+    lines.push("");
+    lines.push(...renderBrunoExampleBlock(responseExample, requestExample));
+  }
+
   return `${lines.join("\n")}\n`;
 }
 
@@ -291,6 +336,201 @@ function buildHeaders(
   return headers;
 }
 
+function buildBrunoRequestExampleData(input: {
+  pathname: string;
+  method: string;
+  contentType?: "json" | "form-urlencoded" | "multipart-form";
+  requestBodySchema?: SchemaObject;
+  pathParameters: Array<{ name: string; schema?: SchemaObject; }>;
+  queryParameters: Array<{ name: string; schema?: SchemaObject; }>;
+  headers: Array<{ name: string; value: string; }>;
+}): BrunoRequestExampleData {
+  const {
+    pathname,
+    method,
+    contentType,
+    requestBodySchema,
+    pathParameters,
+    queryParameters,
+    headers,
+  } = input;
+
+  let bodyContent: string | undefined;
+  if (requestBodySchema && contentType === "json") {
+    bodyContent = JSON.stringify(buildExampleFromSchema(requestBodySchema), null, 2);
+  }
+
+  if (requestBodySchema && (contentType === "form-urlencoded" || contentType === "multipart-form")) {
+    bodyContent = Object.entries(buildFlatFormExample(requestBodySchema))
+      .map(([key, value]) => `${escapeBruKey(key)}: ${value}`)
+      .join("\n");
+  }
+
+  return {
+    url: `{{baseUrl}}${toBruPath(pathname)}`,
+    method: method.toLowerCase(),
+    bodyMode: contentType,
+    pathParams: pathParameters.map((parameter) => ({
+      name: parameter.name,
+      value: renderPlaceholderValue(parameter.name, parameter.schema),
+    })),
+    queryParams: queryParameters.map((parameter) => ({
+      name: parameter.name,
+      value: renderPlaceholderValue(parameter.name, parameter.schema),
+    })),
+    headers,
+    bodyContent,
+  };
+}
+
+function extractBrunoResponseExamples(operation: OpenApiOperation): BrunoResponseExampleData[] {
+  const examples: BrunoResponseExampleData[] = [];
+
+  for (const [statusCode, response] of Object.entries(operation.responses ?? {})) {
+    const contentEntries = Object.entries(response.content ?? {});
+    if (contentEntries.length === 0) {
+      examples.push({
+        name: `${statusCode} Response`,
+        description: response.description,
+        statusCode,
+      });
+      continue;
+    }
+
+    for (const [contentType, content] of contentEntries) {
+      if (content.examples) {
+        for (const [exampleName, example] of Object.entries(content.examples)) {
+          examples.push({
+            name: example.summary ?? exampleName ?? `${statusCode} Response`,
+            description: example.description ?? response.description,
+            statusCode,
+            contentType,
+            body: example.value ?? example,
+          });
+        }
+        continue;
+      }
+
+      if (content.example !== undefined) {
+        examples.push({
+          name: `${statusCode} Response`,
+          description: response.description,
+          statusCode,
+          contentType,
+          body: content.example,
+        });
+        continue;
+      }
+
+      if (content.schema) {
+        examples.push({
+          name: `${statusCode} Response`,
+          description: response.description,
+          statusCode,
+          contentType,
+          body: buildExampleFromSchema(content.schema),
+        });
+      }
+    }
+  }
+
+  return examples;
+}
+
+function renderBrunoExampleBlock(
+  responseExample: BrunoResponseExampleData,
+  requestExample: BrunoRequestExampleData,
+): string[] {
+  const lines: string[] = [];
+
+  lines.push("example {");
+  lines.push(`  name: ${escapeBruScalar(responseExample.name)}`);
+  if (responseExample.description) {
+    lines.push(`  description: ${escapeBruScalar(responseExample.description)}`);
+  }
+  lines.push("");
+  lines.push("  request: {");
+  lines.push(`    url: ${requestExample.url}`);
+  lines.push(`    method: ${requestExample.method}`);
+  if (requestExample.bodyMode) {
+    lines.push(`    mode: ${requestExample.bodyMode}`);
+  }
+
+  if (requestExample.queryParams.length > 0) {
+    lines.push("    params:query: {");
+    for (const parameter of requestExample.queryParams) {
+      lines.push(`      ${escapeBruKey(parameter.name)}: ${parameter.value}`);
+    }
+    lines.push("    }");
+    lines.push("");
+  }
+
+  if (requestExample.pathParams.length > 0) {
+    lines.push("    params:path: {");
+    for (const parameter of requestExample.pathParams) {
+      lines.push(`      ${escapeBruKey(parameter.name)}: ${parameter.value}`);
+    }
+    lines.push("    }");
+    lines.push("");
+  }
+
+  if (requestExample.headers.length > 0) {
+    lines.push("    headers: {");
+    for (const header of requestExample.headers) {
+      lines.push(`      ${escapeBruKey(header.name)}: ${header.value}`);
+    }
+    lines.push("    }");
+    lines.push("");
+  }
+
+  if (requestExample.bodyContent !== undefined && requestExample.bodyMode) {
+    lines.push(`    body:${requestExample.bodyMode}: {`);
+    lines.push(indent(requestExample.bodyContent, 6));
+    lines.push("    }");
+    lines.push("");
+  }
+
+  if (lines[lines.length - 1] === "") {
+    lines.pop();
+  }
+  lines.push("  }");
+  lines.push("");
+  lines.push("  response: {");
+
+  if (responseExample.contentType) {
+    lines.push("    headers: {");
+    lines.push(`      Content-Type: ${responseExample.contentType}`);
+    lines.push("    }");
+    lines.push("");
+  }
+
+  lines.push("    status: {");
+  lines.push(`      code: ${responseExample.statusCode}`);
+  const statusText = getHttpStatusText(responseExample.statusCode);
+  if (statusText) {
+    lines.push(`      text: ${escapeBruScalar(statusText)}`);
+  }
+  lines.push("    }");
+
+  if (responseExample.body !== undefined) {
+    lines.push("");
+    lines.push("    body: {");
+    const responseBodyType = inferResponseBodyType(responseExample.contentType);
+    if (responseBodyType) {
+      lines.push(`      type: ${responseBodyType}`);
+    }
+    lines.push("      content: '''");
+    lines.push(indent(renderExampleBodyContent(responseExample.body), 8));
+    lines.push("      '''");
+    lines.push("    }");
+  }
+
+  lines.push("  }");
+  lines.push("}");
+
+  return lines;
+}
+
 function buildExampleFromSchema(schema: SchemaObject): unknown {
   if (schema.example !== undefined) {
     return schema.example;
@@ -364,6 +604,55 @@ function renderPlaceholderValue(name: string, schema?: SchemaObject): string {
 
 function toBruPath(pathname: string): string {
   return pathname.replace(/\{([^}]+)\}/g, ":$1");
+}
+
+function inferResponseBodyType(contentType?: string): "json" | "text" | "xml" | undefined {
+  if (!contentType) {
+    return undefined;
+  }
+
+  const normalized = contentType.toLowerCase();
+  if (normalized.includes("json")) {
+    return "json";
+  }
+  if (normalized.includes("xml")) {
+    return "xml";
+  }
+  return "text";
+}
+
+function getHttpStatusText(statusCode: string): string | undefined {
+  const statusMap: Record<string, string> = {
+    "200": "OK",
+    "201": "Created",
+    "202": "Accepted",
+    "204": "No Content",
+    "400": "Bad Request",
+    "401": "Unauthorized",
+    "403": "Forbidden",
+    "404": "Not Found",
+    "409": "Conflict",
+    "422": "Unprocessable Entity",
+    "500": "Internal Server Error",
+  };
+
+  return statusMap[statusCode];
+}
+
+function renderExampleBodyContent(value: unknown): string {
+  if (typeof value === "string") {
+    return value;
+  }
+
+  return JSON.stringify(value, null, 2);
+}
+
+function escapeBruKey(value: string): string {
+  if (/[:\"{}\s]/.test(value)) {
+    return JSON.stringify(value);
+  }
+
+  return value;
 }
 
 function escapeBruScalar(value: string): string {
