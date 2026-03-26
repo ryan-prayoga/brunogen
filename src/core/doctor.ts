@@ -26,6 +26,7 @@ export async function runDoctor(cwd: string, config: BrunogenConfig): Promise<Do
     `artisan: ${await fileExists(path.join(projectRoot, "artisan")) ? "yes" : "no"}`,
     `go.mod: ${await fileExists(path.join(projectRoot, "go.mod")) ? "yes" : "no"}`,
     `package.json: ${await fileExists(path.join(projectRoot, "package.json")) ? "yes" : "no"}`,
+    `configured bearer middleware hints: ${config.auth.middlewarePatterns.bearer.length > 0 ? config.auth.middlewarePatterns.bearer.join(", ") : "none"}`,
   ];
 
   let artifacts:
@@ -89,8 +90,11 @@ async function collectExpressDoctorLines(
 
   if (artifacts) {
     const skippedHandlers = artifacts.warnings.filter((warning) => warning.code === "EXPRESS_HANDLER_NOT_FOUND").length;
+    const unknownAuthMiddleware = collectWarningSubjects(artifacts.warnings, "EXPRESS_AUTH_MIDDLEWARE_UNKNOWN");
     lines.push(`express handlers inferred: ${Math.max(artifacts.normalized.endpoints.length - skippedHandlers, 0)}`);
     lines.push(`express handlers skipped: ${skippedHandlers}`);
+    lines.push(`express auth middleware warnings: ${unknownAuthMiddleware.length}`);
+    lines.push(`express unknown auth middleware: ${unknownAuthMiddleware.length > 0 ? unknownAuthMiddleware.join(", ") : "none"}`);
   }
 
   return lines;
@@ -131,8 +135,23 @@ async function collectGoDoctorLines(
 
   if (artifacts) {
     const inferenceWarnings = artifacts.warnings.filter((warning) => warning.code.startsWith("GO_")).length;
+    const unknownAuthMiddleware = collectWarningSubjects(artifacts.warnings, "GO_AUTH_MIDDLEWARE_UNKNOWN");
     lines.push(`go inference warnings: ${inferenceWarnings}`);
+    lines.push(`go auth middleware warnings: ${unknownAuthMiddleware.length}`);
+    lines.push(`go unknown auth middleware: ${unknownAuthMiddleware.length > 0 ? unknownAuthMiddleware.join(", ") : "none"}`);
   }
 
   return lines;
+}
+
+function collectWarningSubjects(
+  warnings: Array<{ code: string; message: string; }>,
+  code: string,
+): string[] {
+  const subjects = warnings
+    .filter((warning) => warning.code === code)
+    .map((warning) => warning.message.match(/'([^']+)'/)?.[1])
+    .filter((value): value is string => Boolean(value));
+
+  return [...new Set(subjects)];
 }
