@@ -1,9 +1,4 @@
 openapi: 3.1.0
-info:
-  title: example.com/ginapp
-  version: 1.0.0
-servers:
-  - url: "{{baseUrl}}"
 paths:
   /api/users:
     post:
@@ -20,14 +15,38 @@ paths:
               properties:
                 name:
                   type: string
+                  maxLength: 255
                 email:
                   type: string
+                  format: email
                 age:
                   type: integer
+                  minimum: 18
+                role:
+                  type: string
+                  enum:
+                    - user
+                    - admin
+                password:
+                  type: string
+                  minLength: 8
+                tags:
+                  type: array
+                  items:
+                    type: string
               required:
                 - name
                 - email
+                - password
       responses:
+        "200":
+          description: Inferred JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties: {}
+              example: {}
         "201":
           description: Inferred JSON response
           content:
@@ -40,15 +59,49 @@ paths:
                   data:
                     type: object
                     properties:
+                      id:
+                        type: integer
                       name:
                         type: string
                       email:
                         type: string
                       age:
                         type: integer
+                      role:
+                        type: string
+                      createdAt:
+                        type: string
               example:
                 message: user created
                 data:
+                  id: 1
                   name: Jane Doe
                   email: user@example.com
                   age: 1
+                  role: Role
+                  createdAt: 2024-01-01T00:00:00Z
+        "400":
+          description: Inferred JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: object
+                    properties: {}
+              example:
+                error: {}
+        "409":
+          description: Inferred JSON response
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  error:
+                    type: string
+              example:
+                error: Email already exists
+      security:
+        - bearerAuth: []
