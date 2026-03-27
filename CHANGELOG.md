@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+## v0.4.0
+*Released: 2026-03-27*
+
+- Expand Express route inference for nested mounts, named router exports, chained routes, and broader auth middleware hints
+- Improve Express request/response inference for direct body access, typed route syntax, inline and nested Joi-backed schema hints, common helper wrappers, and richer demo coverage
+- Rework Go route scanning to follow grouped registrations across helper functions and broaden Gin/Fiber/Echo fixture coverage
+- Infer more Go request constraints from `binding` / `validate` tags and handle more response patterns such as `Status(...).JSON(...)`, `AbortWithStatusJSON(...)`, and `SendStatus(...)`
+- Add configurable auth middleware pattern hints plus clearer Go and Express warnings when a middleware looks security-related but is not recognized, including `doctor` visibility
+- Add stronger `doctor` output for Express and Go projects plus extra OpenAPI consistency checks in `brunogen validate`
+
 ## v0.3.1
 
 - Refresh the public README with framework-specific visual previews for Laravel, Express, and Go
@@ -16,17 +28,6 @@
 - Add and lock an Express happy-path demo snapshot
 - Improve Go response inference for direct Gin and Echo JSON responses
 - Add explicit supported-pattern guidance for Laravel and Express in the README
-
-## Unreleased
-
-## v0.4.0
-
-- Expand Express route inference for nested mounts, named router exports, chained routes, and broader auth middleware hints
-- Improve Express request/response inference for direct body access, typed route syntax, inline and nested Joi-backed schema hints, common helper wrappers, and richer demo coverage
-- Rework Go route scanning to follow grouped registrations across helper functions and broaden Gin/Fiber/Echo fixture coverage
-- Infer more Go request constraints from `binding` / `validate` tags and handle more response patterns such as `Status(...).JSON(...)`, `AbortWithStatusJSON(...)`, and `SendStatus(...)`
-- Add configurable auth middleware pattern hints plus clearer Go and Express warnings when a middleware looks security-related but is not recognized, including `doctor` visibility
-- Add stronger `doctor` output for Express and Go projects plus extra OpenAPI consistency checks in `brunogen validate`
 
 ## v0.2.0
 
