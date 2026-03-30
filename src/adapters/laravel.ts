@@ -4,7 +4,11 @@ import { promises as fs } from "node:fs";
 import { listFiles } from "../core/fs";
 import { dedupeParameters, dedupeResponsesByStatusCode } from "../core/dedupe";
 import { defaultStatusForMethod } from "../core/responses";
-import { extractBalanced, splitTopLevel, splitTopLevelSequence } from "../core/parsing";
+import {
+  extractBalanced,
+  splitTopLevel,
+  splitTopLevelSequence,
+} from "../core/parsing";
 import type {
   GenerationWarning,
   HttpMethod,
@@ -52,9 +56,8 @@ export async function scanLaravelProject(
   projectVersion: string,
 ): Promise<NormalizedProject> {
   const classIndex = await buildPhpClassIndex(root);
-  const routeFiles = await listFiles(
-    path.join(root, "routes"),
-    (filePath) => filePath.endsWith(".php"),
+  const routeFiles = await listFiles(path.join(root, "routes"), (filePath) =>
+    filePath.endsWith(".php"),
   );
 
   const warnings: GenerationWarning[] = [];
@@ -63,7 +66,12 @@ export async function scanLaravelProject(
 
   for (const routeFile of routeFiles) {
     const content = await fs.readFile(routeFile, "utf8");
-    const routeParse = await parseRoutesFromFile(content, routeFile, classIndex, controllerCache);
+    const routeParse = await parseRoutesFromFile(
+      content,
+      routeFile,
+      classIndex,
+      controllerCache,
+    );
     endpoints.push(...routeParse.endpoints);
     warnings.push(...routeParse.warnings);
   }
@@ -77,7 +85,9 @@ export async function scanLaravelProject(
   };
 }
 
-async function buildPhpClassIndex(root: string): Promise<Map<string, PhpClassRecord>> {
+async function buildPhpClassIndex(
+  root: string,
+): Promise<Map<string, PhpClassRecord>> {
   const phpFiles = await listFiles(
     path.join(root, "app"),
     (filePath) => filePath.endsWith(".php"),
@@ -87,7 +97,9 @@ async function buildPhpClassIndex(root: string): Promise<Map<string, PhpClassRec
 
   for (const filePath of phpFiles) {
     const content = await fs.readFile(filePath, "utf8");
-    const classMatch = content.match(/\b(?:class|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b/);
+    const classMatch = content.match(
+      /\b(?:class|enum)\s+([A-Za-z_][A-Za-z0-9_]*)\b/,
+    );
     if (!classMatch?.[1]) {
       continue;
     }
@@ -106,11 +118,11 @@ async function parseRoutesFromFile(
   filePath: string,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
-): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[]; }> {
+): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] }> {
   const lines = content.split(/\r?\n/);
   const endpoints: NormalizedEndpoint[] = [];
   const warnings: GenerationWarning[] = [];
-  const groupStack: Array<{ context: GroupContext; depth: number; }> = [];
+  const groupStack: Array<{ context: GroupContext; depth: number }> = [];
 
   let braceDepth = 0;
 
@@ -119,13 +131,18 @@ async function parseRoutesFromFile(
 
     if (!line || !line.includes("Route::")) {
       braceDepth += countBraceDelta(rawLine);
-      while (groupStack.length && braceDepth < groupStack[groupStack.length - 1].depth) {
+      while (
+        groupStack.length &&
+        braceDepth < groupStack[groupStack.length - 1].depth
+      ) {
         groupStack.pop();
       }
       continue;
     }
 
-    const currentContext = mergeGroupContexts(groupStack.map((entry) => entry.context));
+    const currentContext = mergeGroupContexts(
+      groupStack.map((entry) => entry.context),
+    );
 
     if (line.includes("->group(function")) {
       groupStack.push({
@@ -136,7 +153,10 @@ async function parseRoutesFromFile(
       continue;
     }
 
-    if (line.includes("Route::apiResource(") || line.includes("Route::resource(")) {
+    if (
+      line.includes("Route::apiResource(") ||
+      line.includes("Route::resource(")
+    ) {
       const resourceRoutes = await parseResourceRoute(
         line,
         currentContext,
@@ -165,7 +185,10 @@ async function parseRoutesFromFile(
     warnings.push(...parsedRoute.warnings);
 
     braceDepth += countBraceDelta(rawLine);
-    while (groupStack.length && braceDepth < groupStack[groupStack.length - 1].depth) {
+    while (
+      groupStack.length &&
+      braceDepth < groupStack[groupStack.length - 1].depth
+    ) {
       groupStack.pop();
     }
   }
@@ -205,18 +228,20 @@ async function parseConcreteRoute(
   lineNumber: number,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
-): Promise<{ endpoint?: NormalizedEndpoint; warnings: GenerationWarning[]; }> {
+): Promise<{ endpoint?: NormalizedEndpoint; warnings: GenerationWarning[] }> {
   const routeMatch = statement.match(
     /Route::(get|post|put|patch|delete|head|options)\s*\(\s*(['"])(.*?)\2\s*,\s*(.+?)\)\s*(.*);?$/,
   );
 
   if (!routeMatch) {
     return {
-      warnings: [{
-        code: "LARAVEL_ROUTE_UNSUPPORTED",
-        message: `Skipped unsupported Laravel route declaration: ${statement}`,
-        location: { file: filePath, line: lineNumber },
-      }],
+      warnings: [
+        {
+          code: "LARAVEL_ROUTE_UNSUPPORTED",
+          message: `Skipped unsupported Laravel route declaration: ${statement}`,
+          location: { file: filePath, line: lineNumber },
+        },
+      ],
     };
   }
 
@@ -227,12 +252,20 @@ async function parseConcreteRoute(
   const routeContext = parseGroupContext(`Route::${routeChain}`);
   const context = mergeGroupContexts([inheritedContext, routeContext]);
   const handler = parseHandler(handlerText, context.controller);
-  const analysis = await analyzeControllerHandler(handler, classIndex, controllerCache);
-  const normalizedPath = normalizeLaravelPath(joinRoutePath(context.prefixes, rawPath));
+  const analysis = await analyzeControllerHandler(
+    handler,
+    classIndex,
+    controllerCache,
+  );
+  const normalizedPath = normalizeLaravelPath(
+    joinRoutePath(context.prefixes, rawPath),
+  );
   const inferredAuth = inferAuthFromMiddleware(context.middleware);
   const parameters = dedupeParameters([
     ...extractPathParameters(normalizedPath),
-    ...analysis.queryParameters.filter((parameter) => !normalizedPath.includes(`{${parameter.name}}`)),
+    ...analysis.queryParameters.filter(
+      (parameter) => !normalizedPath.includes(`{${parameter.name}}`),
+    ),
     ...analysis.headerParameters,
   ]);
 
@@ -246,7 +279,10 @@ async function parseConcreteRoute(
       tags: [inferTag(normalizedPath, handler?.controller)],
       parameters,
       requestBody: analysis.requestBody,
-      responses: analysis.responses.length > 0 ? analysis.responses : buildDefaultResponses(method),
+      responses:
+        analysis.responses.length > 0
+          ? analysis.responses
+          : buildDefaultResponses(method),
       auth: inferredAuth,
       source: {
         file: filePath,
@@ -265,7 +301,7 @@ async function parseResourceRoute(
   lineNumber: number,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
-): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[]; }> {
+): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] }> {
   const match = statement.match(
     /Route::(?:apiResource|resource)\s*\(\s*(['"])(.*?)\1\s*,\s*([A-Za-z0-9_\\]+)::class\s*\)(.*);?$/,
   );
@@ -273,11 +309,13 @@ async function parseResourceRoute(
   if (!match) {
     return {
       endpoints: [],
-      warnings: [{
-        code: "LARAVEL_RESOURCE_UNSUPPORTED",
-        message: `Skipped unsupported Laravel resource declaration: ${statement}`,
-        location: { file: filePath, line: lineNumber },
-      }],
+      warnings: [
+        {
+          code: "LARAVEL_RESOURCE_UNSUPPORTED",
+          message: `Skipped unsupported Laravel resource declaration: ${statement}`,
+          location: { file: filePath, line: lineNumber },
+        },
+      ],
     };
   }
 
@@ -285,12 +323,22 @@ async function parseResourceRoute(
   const controller = shortPhpClassName(match[3]);
   const chain = match[4] ?? "";
   const resourceContext = parseGroupContext(`Route::${chain}`);
-  const context = mergeGroupContexts([inheritedContext, resourceContext, { prefixes: [], middleware: [], controller }]);
+  const context = mergeGroupContexts([
+    inheritedContext,
+    resourceContext,
+    { prefixes: [], middleware: [], controller },
+  ]);
   const only = parseResourceScope(chain, "only");
   const except = parseResourceScope(chain, "except");
-  const singularSegment = singularize(rawPath.split("/").filter(Boolean).pop() ?? "item");
+  const singularSegment = singularize(
+    rawPath.split("/").filter(Boolean).pop() ?? "item",
+  );
   const memberPath = `${rawPath.replace(/\/$/, "")}/{${singularSegment}}`;
-  const resourceActions: Array<{ method: HttpMethod; action: string; path: string; }> = [
+  const resourceActions: Array<{
+    method: HttpMethod;
+    action: string;
+    path: string;
+  }> = [
     { method: "get", action: "index", path: rawPath },
     { method: "post", action: "store", path: rawPath },
     { method: "get", action: "show", path: memberPath },
@@ -316,8 +364,14 @@ async function parseResourceRoute(
 
   for (const action of actions) {
     const handler: ParsedHandler = { controller, action: action.action };
-    const analysis = await analyzeControllerHandler(handler, classIndex, controllerCache);
-    const normalizedPath = normalizeLaravelPath(joinRoutePath(context.prefixes, action.path));
+    const analysis = await analyzeControllerHandler(
+      handler,
+      classIndex,
+      controllerCache,
+    );
+    const normalizedPath = normalizeLaravelPath(
+      joinRoutePath(context.prefixes, action.path),
+    );
     endpoints.push({
       id: `${action.method}:${normalizedPath}`,
       method: action.method,
@@ -327,11 +381,16 @@ async function parseResourceRoute(
       tags: [inferTag(normalizedPath, controller)],
       parameters: dedupeParameters([
         ...extractPathParameters(normalizedPath),
-        ...analysis.queryParameters.filter((parameter) => !normalizedPath.includes(`{${parameter.name}}`)),
+        ...analysis.queryParameters.filter(
+          (parameter) => !normalizedPath.includes(`{${parameter.name}}`),
+        ),
         ...analysis.headerParameters,
       ]),
       requestBody: analysis.requestBody,
-      responses: analysis.responses.length > 0 ? analysis.responses : buildDefaultResponses(action.method),
+      responses:
+        analysis.responses.length > 0
+          ? analysis.responses
+          : buildDefaultResponses(action.method),
       auth: inferAuthFromMiddleware(context.middleware),
       source: {
         file: filePath,
@@ -345,13 +404,21 @@ async function parseResourceRoute(
   return { endpoints, warnings };
 }
 
-function parseResourceScope(chain: string, methodName: "only" | "except"): string[] {
+function parseResourceScope(
+  chain: string,
+  methodName: "only" | "except",
+): string[] {
   const match = chain.match(new RegExp(`->${methodName}\\((.*?)\\)`));
   return match ? parsePhpStringList(match[1]) : [];
 }
 
-function parseHandler(handlerText: string, fallbackController?: string): ParsedHandler | undefined {
-  const controllerArray = handlerText.match(/\[\s*([A-Za-z0-9_\\]+)::class\s*,\s*['"]([A-Za-z0-9_]+)['"]\s*\]/);
+function parseHandler(
+  handlerText: string,
+  fallbackController?: string,
+): ParsedHandler | undefined {
+  const controllerArray = handlerText.match(
+    /\[\s*([A-Za-z0-9_\\]+)::class\s*,\s*['"]([A-Za-z0-9_]+)['"]\s*\]/,
+  );
   if (controllerArray?.[1] && controllerArray[2]) {
     return {
       controller: shortPhpClassName(controllerArray[1]),
@@ -384,7 +451,12 @@ async function analyzeControllerHandler(
   controllerCache: Map<string, ControllerAnalysis>,
 ): Promise<ControllerAnalysis> {
   if (!handler?.controller || !handler.action) {
-    return { queryParameters: [], headerParameters: [], responses: [], warnings: [] };
+    return {
+      queryParameters: [],
+      headerParameters: [],
+      responses: [],
+      warnings: [],
+    };
   }
 
   const cacheKey = `${handler.controller}:${handler.action}`;
@@ -399,20 +471,33 @@ async function analyzeControllerHandler(
       code: "LARAVEL_CONTROLLER_NOT_FOUND",
       message: `Could not locate controller ${handler.controller} while inferring request schema.`,
     };
-    const result = { queryParameters: [], headerParameters: [], responses: [], warnings: [warning] };
+    const result = {
+      queryParameters: [],
+      headerParameters: [],
+      responses: [],
+      warnings: [warning],
+    };
     controllerCache.set(cacheKey, result);
     return result;
   }
 
   const content = await fs.readFile(controllerRecord.filePath, "utf8");
-  const methodMatch = new RegExp(`function\\s+${handler.action}\\s*\\(([^)]*)\\)`, "m").exec(content);
+  const methodMatch = new RegExp(
+    `function\\s+${handler.action}\\s*\\(([^)]*)\\)`,
+    "m",
+  ).exec(content);
   if (!methodMatch) {
     const warning = {
       code: "LARAVEL_CONTROLLER_METHOD_NOT_FOUND",
       message: `Could not locate ${handler.controller}::${handler.action} while inferring request schema.`,
       location: { file: controllerRecord.filePath },
     };
-    const result = { queryParameters: [], headerParameters: [], responses: [], warnings: [warning] };
+    const result = {
+      queryParameters: [],
+      headerParameters: [],
+      responses: [],
+      warnings: [warning],
+    };
     controllerCache.set(cacheKey, result);
     return result;
   }
@@ -420,7 +505,10 @@ async function analyzeControllerHandler(
   const params = methodMatch[1] ?? "";
   const firstRequestType = extractFirstRequestType(params);
   const bodyStartIndex = content.indexOf("{", methodMatch.index);
-  const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
+  const body =
+    bodyStartIndex >= 0
+      ? extractBalanced(content, bodyStartIndex, "{", "}")
+      : null;
   const warnings: GenerationWarning[] = [];
   let requestBody: NormalizedRequestBody | undefined;
   let queryParameters: NormalizedParameter[] = [];
@@ -428,7 +516,10 @@ async function analyzeControllerHandler(
   let responses: NormalizedResponse[] = [];
 
   if (firstRequestType && firstRequestType !== "Request") {
-    const requestSchema = await parseFormRequestSchema(firstRequestType, classIndex);
+    const requestSchema = await parseFormRequestSchema(
+      firstRequestType,
+      classIndex,
+    );
     if (requestSchema) {
       requestBody = {
         contentType: "application/json" as const,
@@ -446,7 +537,10 @@ async function analyzeControllerHandler(
       };
     }
 
-    const manualRequestSchema = await extractLaravelManualRequestSchema(body, classIndex);
+    const manualRequestSchema = await extractLaravelManualRequestSchema(
+      body,
+      classIndex,
+    );
     if (manualRequestSchema) {
       requestBody = mergeLaravelRequestBodies(requestBody, manualRequestSchema);
     }
@@ -512,7 +606,9 @@ async function parseFormRequestSchema(
   return buildLaravelSchemaFromRules(parsePhpRulesArray(rules));
 }
 
-function extractInlineValidationRules(methodBody: string): Record<string, string[]> | undefined {
+function extractInlineValidationRules(
+  methodBody: string,
+): Record<string, string[]> | undefined {
   const validateCallIndex = methodBody.search(/->validate\s*\(/);
   if (validateCallIndex >= 0) {
     const arrayStart = methodBody.indexOf("[", validateCallIndex);
@@ -545,7 +641,9 @@ function extractReturnArray(methodBody: string): string | null {
   }
 
   const startIndex = methodBody.indexOf("[", returnMatch.index);
-  return startIndex >= 0 ? extractBalanced(methodBody, startIndex, "[", "]") : null;
+  return startIndex >= 0
+    ? extractBalanced(methodBody, startIndex, "[", "]")
+    : null;
 }
 
 function parsePhpRulesArray(arrayBody: string): Record<string, string[]> {
@@ -573,17 +671,25 @@ function parsePhpRulesArray(arrayBody: string): Record<string, string[]> {
 function parseRuleValue(rawValue: string): string[] {
   const singleRule = parsePhpString(rawValue);
   if (singleRule) {
-    return singleRule.split("|").map((rule) => rule.trim()).filter(Boolean);
+    return singleRule
+      .split("|")
+      .map((rule) => rule.trim())
+      .filter(Boolean);
   }
 
   if (rawValue.startsWith("[") && rawValue.endsWith("]")) {
-    return parsePhpStringList(rawValue).flatMap((rule) => rule.split("|")).map((rule) => rule.trim()).filter(Boolean);
+    return parsePhpStringList(rawValue)
+      .flatMap((rule) => rule.split("|"))
+      .map((rule) => rule.trim())
+      .filter(Boolean);
   }
 
   return [];
 }
 
-function buildLaravelSchemaFromRules(ruleMap: Record<string, string[]>): SchemaObject {
+function buildLaravelSchemaFromRules(
+  ruleMap: Record<string, string[]>,
+): SchemaObject {
   const properties: Record<string, SchemaObject> = {};
   const required: string[] = [];
 
@@ -642,7 +748,10 @@ function buildLaravelSchemaFromRules(ruleMap: Record<string, string[]>): SchemaO
           break;
         case "in":
           inferredType = inferredType ?? "string";
-          schema.enum = rawArgument.split(",").map((value) => value.trim()).filter(Boolean);
+          schema.enum = rawArgument
+            .split(",")
+            .map((value) => value.trim())
+            .filter(Boolean);
           break;
         default:
           break;
@@ -693,11 +802,14 @@ function splitRule(rule: string): [string, string] {
 }
 
 function mergeGroupContexts(contexts: GroupContext[]): GroupContext {
-  return contexts.reduce<GroupContext>((accumulator, context) => ({
-    prefixes: [...accumulator.prefixes, ...context.prefixes],
-    middleware: [...accumulator.middleware, ...context.middleware],
-    controller: context.controller ?? accumulator.controller,
-  }), { prefixes: [], middleware: [] });
+  return contexts.reduce<GroupContext>(
+    (accumulator, context) => ({
+      prefixes: [...accumulator.prefixes, ...context.prefixes],
+      middleware: [...accumulator.middleware, ...context.middleware],
+      controller: context.controller ?? accumulator.controller,
+    }),
+    { prefixes: [], middleware: [] },
+  );
 }
 
 function joinRoutePath(prefixes: string[], rawPath: string): string {
@@ -711,10 +823,12 @@ function joinRoutePath(prefixes: string[], rawPath: string): string {
 }
 
 function normalizeLaravelPath(pathname: string): string {
-  return pathname
-    .replace(/\{([^}:]+):[^}]+\}/g, "{$1}")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "") || "/";
+  return (
+    pathname
+      .replace(/\{([^}:]+):[^}]+\}/g, "{$1}")
+      .replace(/\/+/g, "/")
+      .replace(/\/$/, "") || "/"
+  );
 }
 
 function inferAuthFromMiddleware(middleware: string[]): NormalizedAuth {
@@ -736,16 +850,29 @@ function extractPathParameters(pathname: string) {
   }));
 }
 
-function buildOperationId(method: HttpMethod, pathname: string, handler?: ParsedHandler): string {
+function buildOperationId(
+  method: HttpMethod,
+  pathname: string,
+  handler?: ParsedHandler,
+): string {
   if (handler?.controller && handler.action) {
     return `${camelCase(handler.controller)}${capitalize(handler.action)}`;
   }
 
-  const cleanPath = pathname.replace(/[{}]/g, "").split("/").filter(Boolean).map(capitalize).join("");
+  const cleanPath = pathname
+    .replace(/[{}]/g, "")
+    .split("/")
+    .filter(Boolean)
+    .map(capitalize)
+    .join("");
   return `${method}${cleanPath || "Root"}`;
 }
 
-function buildSummary(method: HttpMethod, pathname: string, handler?: ParsedHandler): string {
+function buildSummary(
+  method: HttpMethod,
+  pathname: string,
+  handler?: ParsedHandler,
+): string {
   if (handler?.action && handler.controller) {
     return `${handler.controller}::${handler.action}`;
   }
@@ -762,16 +889,22 @@ function inferTag(pathname: string, controller?: string): string {
 }
 
 function buildDefaultResponses(method: HttpMethod): NormalizedResponse[] {
-  return [{
-    statusCode: defaultStatusForMethod(method),
-    description: "Generated default response",
-  }];
+  return [
+    {
+      statusCode: defaultStatusForMethod(method),
+      description: "Generated default response",
+    },
+  ];
 }
 
-function extractLaravelQueryParameters(methodBody: string): NormalizedParameter[] {
+function extractLaravelQueryParameters(
+  methodBody: string,
+): NormalizedParameter[] {
   const parameters = new Set<string>();
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*query\s*\(\s*['"]([^'"]+)['"]/g)) {
+  for (const match of methodBody.matchAll(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*query\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
     if (match[1]) {
       parameters.add(match[1]);
     }
@@ -785,16 +918,22 @@ function extractLaravelQueryParameters(methodBody: string): NormalizedParameter[
   }));
 }
 
-function extractLaravelHeaderParameters(methodBody: string): NormalizedParameter[] {
+function extractLaravelHeaderParameters(
+  methodBody: string,
+): NormalizedParameter[] {
   const parameters = new Set<string>();
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*header\s*\(\s*['"]([^'"]+)['"]/g)) {
+  for (const match of methodBody.matchAll(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*header\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
     if (match[1]) {
       parameters.add(match[1]);
     }
   }
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*headers\s*->\s*get\s*\(\s*['"]([^'"]+)['"]/g)) {
+  for (const match of methodBody.matchAll(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*headers\s*->\s*get\s*\(\s*['"]([^'"]+)['"]/g,
+  )) {
     if (match[1]) {
       parameters.add(match[1]);
     }
@@ -814,33 +953,43 @@ async function extractLaravelManualRequestSchema(
 ): Promise<SchemaObject | undefined> {
   const properties: Record<string, SchemaObject> = {};
 
-  const accessorPatterns: Array<{ regex: RegExp; schemaFactory: () => SchemaObject; }> = [
+  const accessorPatterns: Array<{
+    regex: RegExp;
+    schemaFactory: () => SchemaObject;
+  }> = [
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:input|get|post|json|string)\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:input|get|post|json|string)\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "string" }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*integer\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*integer\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "integer" }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:float|double)\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:float|double)\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "number" }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "boolean" }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "boolean" }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "array", items: { type: "string" } }),
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*date\s*\(\s*['"]([^'"]+)['"]/g,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*date\s*\(\s*['"]([^'"]+)['"]/g,
       schemaFactory: () => ({ type: "string", format: "date-time" }),
     },
     {
@@ -856,11 +1005,16 @@ async function extractLaravelManualRequestSchema(
         continue;
       }
 
-      properties[fieldName] = mergeSchemaObjects(properties[fieldName], pattern.schemaFactory());
+      properties[fieldName] = mergeSchemaObjects(
+        properties[fieldName],
+        pattern.schemaFactory(),
+      );
     }
   }
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/g)) {
+  for (const match of methodBody.matchAll(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/g,
+  )) {
     const arrayLiteral = match[1];
     if (!arrayLiteral) {
       continue;
@@ -871,11 +1025,15 @@ async function extractLaravelManualRequestSchema(
         continue;
       }
 
-      properties[fieldName] = mergeSchemaObjects(properties[fieldName], { type: "string" });
+      properties[fieldName] = mergeSchemaObjects(properties[fieldName], {
+        type: "string",
+      });
     }
   }
 
-  for (const match of methodBody.matchAll(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*enum\s*\(\s*['"]([^'"]+)['"]\s*,\s*([A-Za-z0-9_\\]+)::class/g)) {
+  for (const match of methodBody.matchAll(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*enum\s*\(\s*['"]([^'"]+)['"]\s*,\s*([A-Za-z0-9_\\]+)::class/g,
+  )) {
     const fieldName = match[1];
     const enumType = match[2];
     if (!fieldName || !enumType || fieldName.includes(".")) {
@@ -883,12 +1041,15 @@ async function extractLaravelManualRequestSchema(
     }
 
     const enumValues = await parseLaravelEnumValues(enumType, classIndex);
-    properties[fieldName] = mergeSchemaObjects(properties[fieldName], enumValues.length > 0
-      ? {
-        type: typeof enumValues[0] === "number" ? "number" : "string",
-        enum: enumValues,
-      }
-      : { type: "string" });
+    properties[fieldName] = mergeSchemaObjects(
+      properties[fieldName],
+      enumValues.length > 0
+        ? {
+            type: typeof enumValues[0] === "number" ? "number" : "string",
+            enum: enumValues,
+          }
+        : { type: "string" },
+    );
   }
 
   if (Object.keys(properties).length === 0) {
@@ -938,8 +1099,12 @@ function mergeSchemaObjects(
   return {
     ...left,
     ...right,
-    properties: Object.keys(mergedProperties).length > 0 ? mergedProperties : undefined,
-    required: dedupeStrings([...(left.required ?? []), ...(right.required ?? [])]),
+    properties:
+      Object.keys(mergedProperties).length > 0 ? mergedProperties : undefined,
+    required: dedupeStrings([
+      ...(left.required ?? []),
+      ...(right.required ?? []),
+    ]),
   };
 }
 
@@ -951,7 +1116,10 @@ async function extractLaravelResponses(
   depth = 0,
 ): Promise<NormalizedResponse[]> {
   const responses = new Map<string, NormalizedResponse>();
-  const exampleContext = createPhpExampleContext(methodBody, baseContext?.assignments);
+  const exampleContext = createPhpExampleContext(
+    methodBody,
+    baseContext?.assignments,
+  );
 
   for (const jsonCall of extractReturnResponseJsonCalls(methodBody)) {
     const args = splitTopLevel(jsonCall.slice(1, -1), ",");
@@ -1016,7 +1184,10 @@ async function extractLaravelResponses(
     });
   }
 
-  for (const exceptionResponse of extractLaravelExceptionResponses(methodBody, exampleContext)) {
+  for (const exceptionResponse of extractLaravelExceptionResponses(
+    methodBody,
+    exampleContext,
+  )) {
     if (!responses.has(exceptionResponse.statusCode)) {
       responses.set(exceptionResponse.statusCode, exceptionResponse);
     }
@@ -1036,7 +1207,11 @@ async function extractLaravelResponses(
     }
   }
 
-  const resourceResponses = await extractLaravelResourceResponses(methodBody, classIndex, exampleContext);
+  const resourceResponses = await extractLaravelResourceResponses(
+    methodBody,
+    classIndex,
+    exampleContext,
+  );
   for (const response of resourceResponses) {
     if (!responses.has(response.statusCode)) {
       responses.set(response.statusCode, response);
@@ -1046,13 +1221,16 @@ async function extractLaravelResponses(
   return [...responses.values()];
 }
 
-function extractLaravelAbortResponses(methodBody: string): NormalizedResponse[] {
+function extractLaravelAbortResponses(
+  methodBody: string,
+): NormalizedResponse[] {
   const responses = new Map<string, NormalizedResponse>();
 
   for (const abortCall of extractLaravelAbortCalls(methodBody)) {
     const args = splitTopLevel(abortCall.slice(1, -1), ",");
     const statusCode = parseLaravelStatusCode(args[0]) ?? "500";
-    const message = parsePhpString(args[1] ?? "") ?? defaultAbortMessage(statusCode);
+    const message =
+      parsePhpString(args[1] ?? "") ?? defaultAbortMessage(statusCode);
     responses.set(statusCode, {
       statusCode,
       description: "Inferred abort response",
@@ -1078,7 +1256,10 @@ function extractLaravelExceptionResponses(
 ): NormalizedResponse[] {
   const responses = new Map<string, NormalizedResponse>();
 
-  for (const validationErrors of extractLaravelValidationExceptionExamples(methodBody, exampleContext)) {
+  for (const validationErrors of extractLaravelValidationExceptionExamples(
+    methodBody,
+    exampleContext,
+  )) {
     responses.set("422", {
       statusCode: "422",
       description: "Inferred validation exception response",
@@ -1109,7 +1290,10 @@ async function extractLaravelResourceResponses(
   const returnStatements = extractReturnStatements(methodBody);
 
   for (const statement of returnStatements) {
-    const parsedResourceReturn = parseLaravelResourceReturnStatement(statement, exampleContext);
+    const parsedResourceReturn = parseLaravelResourceReturnStatement(
+      statement,
+      exampleContext,
+    );
     if (!parsedResourceReturn) {
       continue;
     }
@@ -1134,36 +1318,44 @@ async function buildLaravelResourceResponse(
   classIndex: Map<string, PhpClassRecord>,
   additional?: unknown,
 ): Promise<NormalizedResponse | undefined> {
-  const resourceSchema = await parseLaravelResourceSchema(resourceType, classIndex);
+  const resourceSchema = await parseLaravelResourceSchema(
+    resourceType,
+    classIndex,
+  );
   if (!resourceSchema) {
     return undefined;
   }
 
-  const additionalProperties = additional && typeof additional === "object" && !Array.isArray(additional)
-    ? additional as Record<string, unknown>
+  const additionalProperties =
+    additional && typeof additional === "object" && !Array.isArray(additional)
+      ? (additional as Record<string, unknown>)
+      : undefined;
+  const additionalSchema = additionalProperties
+    ? inferSchemaFromExample(additionalProperties)
     : undefined;
-  const additionalSchema = additionalProperties ? inferSchemaFromExample(additionalProperties) : undefined;
-  const wrappedSchema: SchemaObject = mode === "collection"
-    ? {
-      type: "object",
-      properties: {
-        data: {
-          type: "array",
-          items: resourceSchema.schema,
-        },
-        ...(additionalSchema?.properties ?? {}),
-      },
-    }
-    : {
-      type: "object",
-      properties: {
-        data: resourceSchema.schema,
-        ...(additionalSchema?.properties ?? {}),
-      },
-    };
-  const wrappedExample = mode === "collection"
-    ? { data: [resourceSchema.example], ...(additionalProperties ?? {}) }
-    : { data: resourceSchema.example, ...(additionalProperties ?? {}) };
+  const wrappedSchema: SchemaObject =
+    mode === "collection"
+      ? {
+          type: "object",
+          properties: {
+            data: {
+              type: "array",
+              items: resourceSchema.schema,
+            },
+            ...(additionalSchema?.properties ?? {}),
+          },
+        }
+      : {
+          type: "object",
+          properties: {
+            data: resourceSchema.schema,
+            ...(additionalSchema?.properties ?? {}),
+          },
+        };
+  const wrappedExample =
+    mode === "collection"
+      ? { data: [resourceSchema.example], ...(additionalProperties ?? {}) }
+      : { data: resourceSchema.example, ...(additionalProperties ?? {}) };
 
   return {
     statusCode: "200",
@@ -1190,17 +1382,24 @@ async function parseLaravelResourceSchema(
   }
 
   const bodyStartIndex = content.indexOf("{", methodMatch.index);
-  const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
+  const body =
+    bodyStartIndex >= 0
+      ? extractBalanced(content, bodyStartIndex, "{", "}")
+      : null;
   if (!body) {
     return undefined;
   }
 
-  const arrayLiteral = extractDirectReturnArrays(body)[0] ?? extractReturnArray(body);
+  const arrayLiteral =
+    extractDirectReturnArrays(body)[0] ?? extractReturnArray(body);
   if (!arrayLiteral) {
     return undefined;
   }
 
-  const example = parsePhpExampleValue(arrayLiteral, createPhpExampleContext(body));
+  const example = parsePhpExampleValue(
+    arrayLiteral,
+    createPhpExampleContext(body),
+  );
   return {
     schema: inferSchemaFromExample(example),
     example,
@@ -1210,8 +1409,16 @@ async function parseLaravelResourceSchema(
 function parseLaravelResourceReturnStatement(
   statement: string,
   exampleContext: PhpExampleContext,
-): { resourceType: string; mode: "single" | "collection"; additional?: unknown; } | undefined {
-  const newResourceMatch = statement.match(/^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/);
+):
+  | {
+      resourceType: string;
+      mode: "single" | "collection";
+      additional?: unknown;
+    }
+  | undefined {
+  const newResourceMatch = statement.match(
+    /^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/,
+  );
   if (newResourceMatch?.[1]) {
     return {
       resourceType: newResourceMatch[1],
@@ -1220,7 +1427,9 @@ function parseLaravelResourceReturnStatement(
     };
   }
 
-  const factoryMatch = statement.match(/^return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/);
+  const factoryMatch = statement.match(
+    /^return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/,
+  );
   if (factoryMatch?.[1] && factoryMatch[2]) {
     return {
       resourceType: factoryMatch[1],
@@ -1241,8 +1450,14 @@ function extractLaravelResourceAdditional(
     return undefined;
   }
 
-  const openParenIndex = statement.indexOf("(", additionalIndex + "->additional".length);
-  const argsBlock = openParenIndex >= 0 ? extractBalanced(statement, openParenIndex, "(", ")") : null;
+  const openParenIndex = statement.indexOf(
+    "(",
+    additionalIndex + "->additional".length,
+  );
+  const argsBlock =
+    openParenIndex >= 0
+      ? extractBalanced(statement, openParenIndex, "(", ")")
+      : null;
   if (!argsBlock) {
     return undefined;
   }
@@ -1253,7 +1468,9 @@ function extractLaravelResourceAdditional(
   }
 
   const additional = parsePhpExampleValue(firstArg, exampleContext);
-  return additional && typeof additional === "object" && !Array.isArray(additional)
+  return additional &&
+    typeof additional === "object" &&
+    !Array.isArray(additional)
     ? additional
     : undefined;
 }
@@ -1268,7 +1485,10 @@ function extractReturnStatements(methodBody: string): string[] {
       break;
     }
 
-    const statementEnd = findTopLevelStatementTerminator(methodBody, returnIndex);
+    const statementEnd = findTopLevelStatementTerminator(
+      methodBody,
+      returnIndex,
+    );
     if (statementEnd < 0) {
       break;
     }
@@ -1293,7 +1513,9 @@ function createPhpExampleContext(
   seedAssignments?: Map<string, string>,
 ): PhpExampleContext {
   const assignments = new Map(seedAssignments ?? []);
-  for (const [variableName, expression] of extractPhpVariableAssignments(methodBody)) {
+  for (const [variableName, expression] of extractPhpVariableAssignments(
+    methodBody,
+  )) {
     assignments.set(variableName, expression);
   }
 
@@ -1304,10 +1526,14 @@ function createPhpExampleContext(
   };
 }
 
-function extractPhpVariableAssignments(methodBody: string): Map<string, string> {
+function extractPhpVariableAssignments(
+  methodBody: string,
+): Map<string, string> {
   const assignments = new Map<string, string>();
 
-  for (const match of methodBody.matchAll(/\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/g)) {
+  for (const match of methodBody.matchAll(
+    /\$([A-Za-z_][A-Za-z0-9_]*)\s*=\s*/g,
+  )) {
     const variableName = match[1];
     const matchIndex = match.index ?? -1;
     if (!variableName || matchIndex < 0) {
@@ -1320,7 +1546,10 @@ function extractPhpVariableAssignments(methodBody: string): Map<string, string> 
       continue;
     }
 
-    const statementEnd = findTopLevelStatementTerminator(methodBody, equalsIndex + 1);
+    const statementEnd = findTopLevelStatementTerminator(
+      methodBody,
+      equalsIndex + 1,
+    );
     if (statementEnd < 0) {
       continue;
     }
@@ -1346,8 +1575,14 @@ function extractReturnResponseJsonCalls(methodBody: string): string[] {
       break;
     }
 
-    const openParenIndex = methodBody.indexOf("(", returnIndex + "return response()->json".length);
-    const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+    const openParenIndex = methodBody.indexOf(
+      "(",
+      returnIndex + "return response()->json".length,
+    );
+    const argsBlock =
+      openParenIndex >= 0
+        ? extractBalanced(methodBody, openParenIndex, "(", ")")
+        : null;
     if (!argsBlock) {
       break;
     }
@@ -1361,11 +1596,7 @@ function extractReturnResponseJsonCalls(methodBody: string): string[] {
 
 function extractLaravelAbortCalls(methodBody: string): string[] {
   const results: string[] = [];
-  const patterns = [
-    "abort(",
-    "abort_if(",
-    "abort_unless(",
-  ];
+  const patterns = ["abort(", "abort_if(", "abort_unless("];
 
   for (const pattern of patterns) {
     let offset = 0;
@@ -1375,8 +1606,14 @@ function extractLaravelAbortCalls(methodBody: string): string[] {
         break;
       }
 
-      const openParenIndex = methodBody.indexOf("(", callIndex + pattern.length - 1);
-      const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+      const openParenIndex = methodBody.indexOf(
+        "(",
+        callIndex + pattern.length - 1,
+      );
+      const argsBlock =
+        openParenIndex >= 0
+          ? extractBalanced(methodBody, openParenIndex, "(", ")")
+          : null;
       if (!argsBlock) {
         break;
       }
@@ -1405,13 +1642,22 @@ function extractLaravelValidationExceptionExamples(
   let offset = 0;
 
   while (offset < methodBody.length) {
-    const callIndex = methodBody.indexOf("ValidationException::withMessages(", offset);
+    const callIndex = methodBody.indexOf(
+      "ValidationException::withMessages(",
+      offset,
+    );
     if (callIndex < 0) {
       break;
     }
 
-    const openParenIndex = methodBody.indexOf("(", callIndex + "ValidationException::withMessages".length);
-    const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+    const openParenIndex = methodBody.indexOf(
+      "(",
+      callIndex + "ValidationException::withMessages".length,
+    );
+    const argsBlock =
+      openParenIndex >= 0
+        ? extractBalanced(methodBody, openParenIndex, "(", ")")
+        : null;
     if (!argsBlock) {
       break;
     }
@@ -1445,7 +1691,10 @@ async function extractLaravelHelperResponses(
       continue;
     }
 
-    const helperMethod = findPhpMethod(controllerContent, helperCall.methodName);
+    const helperMethod = findPhpMethod(
+      controllerContent,
+      helperCall.methodName,
+    );
     if (!helperMethod) {
       continue;
     }
@@ -1458,13 +1707,15 @@ async function extractLaravelHelperResponses(
       }
     });
 
-    responses.push(...await extractLaravelResponses(
-      helperMethod.body,
-      classIndex,
-      controllerContent,
-      createPhpExampleContext(helperMethod.body, seedAssignments),
-      depth + 1,
-    ));
+    responses.push(
+      ...(await extractLaravelResponses(
+        helperMethod.body,
+        classIndex,
+        controllerContent,
+        createPhpExampleContext(helperMethod.body, seedAssignments),
+        depth + 1,
+      )),
+    );
   }
 
   return dedupeResponsesByStatusCode(responses);
@@ -1472,14 +1723,19 @@ async function extractLaravelHelperResponses(
 
 function parseLaravelHelperReturnStatement(
   statement: string,
-): { methodName: string; args: string[]; } | undefined {
-  const helperMatch = statement.match(/^return\s+(?:\$this->|self::)([A-Za-z_][A-Za-z0-9_]*)\s*\(/);
+): { methodName: string; args: string[] } | undefined {
+  const helperMatch = statement.match(
+    /^return\s+(?:\$this->|self::)([A-Za-z_][A-Za-z0-9_]*)\s*\(/,
+  );
   if (!helperMatch?.[1]) {
     return undefined;
   }
 
   const openParenIndex = statement.indexOf("(", helperMatch[0].length - 1);
-  const argsBlock = openParenIndex >= 0 ? extractBalanced(statement, openParenIndex, "(", ")") : null;
+  const argsBlock =
+    openParenIndex >= 0
+      ? extractBalanced(statement, openParenIndex, "(", ")")
+      : null;
   if (!argsBlock) {
     return undefined;
   }
@@ -1493,14 +1749,20 @@ function parseLaravelHelperReturnStatement(
 function findPhpMethod(
   content: string,
   methodName: string,
-): { params: string[]; body: string; } | undefined {
-  const methodMatch = new RegExp(`function\\s+${methodName}\\s*\\(([^)]*)\\)`, "m").exec(content);
+): { params: string[]; body: string } | undefined {
+  const methodMatch = new RegExp(
+    `function\\s+${methodName}\\s*\\(([^)]*)\\)`,
+    "m",
+  ).exec(content);
   if (!methodMatch) {
     return undefined;
   }
 
   const bodyStartIndex = content.indexOf("{", methodMatch.index);
-  const body = bodyStartIndex >= 0 ? extractBalanced(content, bodyStartIndex, "{", "}") : null;
+  const body =
+    bodyStartIndex >= 0
+      ? extractBalanced(content, bodyStartIndex, "{", "}")
+      : null;
   if (!body) {
     return undefined;
   }
@@ -1534,7 +1796,9 @@ async function parseLaravelEnumValues(
   const content = await fs.readFile(enumRecord.filePath, "utf8");
   const values: Array<string | number> = [];
 
-  for (const match of content.matchAll(/\bcase\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:=\s*([^;]+))?;/g)) {
+  for (const match of content.matchAll(
+    /\bcase\s+[A-Za-z_][A-Za-z0-9_]*\s*(?:=\s*([^;]+))?;/g,
+  )) {
     const rawValue = match[1]?.trim();
     if (!rawValue) {
       continue;
@@ -1544,10 +1808,10 @@ async function parseLaravelEnumValues(
     if (typeof parsed === "string" || typeof parsed === "number") {
       values.push(parsed);
     }
-   }
+  }
 
   return values;
-  }
+}
 
 function dedupeStrings(values: string[]): string[] | undefined {
   return values.length > 0 ? [...new Set(values)] : undefined;
@@ -1558,13 +1822,22 @@ function extractReturnResponseNoContentCalls(methodBody: string): string[] {
   let offset = 0;
 
   while (offset < methodBody.length) {
-    const returnIndex = methodBody.indexOf("return response()->noContent(", offset);
+    const returnIndex = methodBody.indexOf(
+      "return response()->noContent(",
+      offset,
+    );
     if (returnIndex < 0) {
       break;
     }
 
-    const openParenIndex = methodBody.indexOf("(", returnIndex + "return response()->noContent".length);
-    const argsBlock = openParenIndex >= 0 ? extractBalanced(methodBody, openParenIndex, "(", ")") : null;
+    const openParenIndex = methodBody.indexOf(
+      "(",
+      returnIndex + "return response()->noContent".length,
+    );
+    const argsBlock =
+      openParenIndex >= 0
+        ? extractBalanced(methodBody, openParenIndex, "(", ")")
+        : null;
     if (!argsBlock) {
       break;
     }
@@ -1587,7 +1860,10 @@ function extractDirectReturnArrays(methodBody: string): string[] {
     }
 
     const openBracketIndex = methodBody.indexOf("[", returnIndex);
-    const arrayBlock = openBracketIndex >= 0 ? extractBalanced(methodBody, openBracketIndex, "[", "]") : null;
+    const arrayBlock =
+      openBracketIndex >= 0
+        ? extractBalanced(methodBody, openBracketIndex, "[", "]")
+        : null;
     if (!arrayBlock) {
       break;
     }
@@ -1639,7 +1915,10 @@ const defaultStatusTextMap: Record<string, string> = {
   "500": "Internal Server Error",
 };
 
-function parsePhpExampleValue(rawValue: string, context?: PhpExampleContext): unknown {
+function parsePhpExampleValue(
+  rawValue: string,
+  context?: PhpExampleContext,
+): unknown {
   const value = resolvePhpExampleValue(rawValue, context);
   return value === unresolvedPhpExample ? {} : value;
 }
@@ -1657,7 +1936,10 @@ function resolvePhpExampleValue(
   if (nullCoalesceOperands.length > 1) {
     for (const operand of nullCoalesceOperands) {
       const resolvedOperand = resolvePhpExampleValue(operand, context);
-      if (resolvedOperand !== unresolvedPhpExample && resolvedOperand !== null) {
+      if (
+        resolvedOperand !== unresolvedPhpExample &&
+        resolvedOperand !== null
+      ) {
         return resolvedOperand;
       }
     }
@@ -1696,16 +1978,23 @@ function resolvePhpExampleValue(
     const isAssoc = entries.some((entry) => hasTopLevelArrow(entry));
 
     if (!isAssoc) {
-      return entries.filter(Boolean).map((entry) => parsePhpExampleValue(entry, context));
+      return entries
+        .filter(Boolean)
+        .map((entry) => parsePhpExampleValue(entry, context));
     }
 
-    return Object.fromEntries(entries
-      .filter((entry) => hasTopLevelArrow(entry))
-      .map((entry) => {
-        const [rawKey, rawEntryValue] = splitTopLevelArrow(entry);
-        const parsedKey = parsePhpString(rawKey.trim()) ?? rawKey.trim();
-        return [String(parsedKey), parsePhpExampleValue(rawEntryValue, context)];
-      }));
+    return Object.fromEntries(
+      entries
+        .filter((entry) => hasTopLevelArrow(entry))
+        .map((entry) => {
+          const [rawKey, rawEntryValue] = splitTopLevelArrow(entry);
+          const parsedKey = parsePhpString(rawKey.trim()) ?? rawKey.trim();
+          return [
+            String(parsedKey),
+            parsePhpExampleValue(rawEntryValue, context),
+          ];
+        }),
+    );
   }
 
   const directVariableMatch = value.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
@@ -1713,7 +2002,9 @@ function resolvePhpExampleValue(
     return resolvePhpVariableExample(directVariableMatch[1], context);
   }
 
-  const propertyAccessMatch = value.match(/^\$[A-Za-z_][A-Za-z0-9_]*->([A-Za-z_][A-Za-z0-9_]*)$/);
+  const propertyAccessMatch = value.match(
+    /^\$[A-Za-z_][A-Za-z0-9_]*->([A-Za-z_][A-Za-z0-9_]*)$/,
+  );
   if (propertyAccessMatch?.[1]) {
     return buildPhpExampleForField(propertyAccessMatch[1]);
   }
@@ -1750,35 +2041,47 @@ function resolvePhpVariableExample(
   return resolved;
 }
 
-function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof unresolvedPhpExample {
+function inferLaravelRequestAccessorExample(
+  rawValue: string,
+): unknown | typeof unresolvedPhpExample {
   const value = rawValue.trim();
-  const typedPatterns: Array<{ regex: RegExp; type: "string" | "integer" | "number" | "boolean" | "array" | "date-time"; }> = [
+  const typedPatterns: Array<{
+    regex: RegExp;
+    type: "string" | "integer" | "number" | "boolean" | "array" | "date-time";
+  }> = [
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:input|get|post|json|string|query|header)\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:input|get|post|json|string|query|header)\s*\(\s*['"]([^'"]+)['"]/,
       type: "string",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*integer\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*integer\s*\(\s*['"]([^'"]+)['"]/,
       type: "integer",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:float|double)\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:float|double)\s*\(\s*['"]([^'"]+)['"]/,
       type: "number",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*boolean\s*\(\s*['"]([^'"]+)['"]/,
       type: "boolean",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:has|filled)\s*\(\s*['"]([^'"]+)['"]/,
       type: "boolean",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*(?:array|collect)\s*\(\s*['"]([^'"]+)['"]/,
       type: "array",
     },
     {
-      regex: /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*date\s*\(\s*['"]([^'"]+)['"]/,
+      regex:
+        /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))\s*->\s*date\s*\(\s*['"]([^'"]+)['"]/,
       type: "date-time",
     },
     {
@@ -1794,10 +2097,15 @@ function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof 
     }
   }
 
-  const onlyMatch = value.match(/(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/);
+  const onlyMatch = value.match(
+    /(?:\$[A-Za-z_][A-Za-z0-9_]*|request\(\))(?:\s*->\s*safe\s*\(\s*\))?\s*->\s*only\s*\(\s*(\[[^\]]*\])\s*\)/,
+  );
   if (onlyMatch?.[1]) {
     return Object.fromEntries(
-      parsePhpStringList(onlyMatch[1]).map((fieldName) => [fieldName, buildPhpExampleForField(fieldName)]),
+      parsePhpStringList(onlyMatch[1]).map((fieldName) => [
+        fieldName,
+        buildPhpExampleForField(fieldName),
+      ]),
     );
   }
 
@@ -1806,7 +2114,13 @@ function inferLaravelRequestAccessorExample(rawValue: string): unknown | typeof 
 
 function buildPhpExampleForField(
   fieldName: string,
-  type: "string" | "integer" | "number" | "boolean" | "array" | "date-time" = "string",
+  type:
+    | "string"
+    | "integer"
+    | "number"
+    | "boolean"
+    | "array"
+    | "date-time" = "string",
 ): unknown {
   const normalized = fieldName.trim().toLowerCase();
 
@@ -1843,7 +2157,9 @@ function buildPhpExampleForField(
   }
 
   if (normalized.includes("token")) {
-    return fieldName === fieldName.toUpperCase() ? `${fieldName}_VALUE` : "token";
+    return fieldName === fieldName.toUpperCase()
+      ? `${fieldName}_VALUE`
+      : "token";
   }
 
   if (normalized === "page" || normalized.endsWith("_page")) {
@@ -1854,7 +2170,11 @@ function buildPhpExampleForField(
     return 1;
   }
 
-  if (normalized.includes("remember") || normalized.startsWith("is_") || normalized.startsWith("has_")) {
+  if (
+    normalized.includes("remember") ||
+    normalized.startsWith("is_") ||
+    normalized.startsWith("has_")
+  ) {
     return true;
   }
 
@@ -1892,7 +2212,10 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
   if (Array.isArray(example)) {
     return {
       type: "array",
-      items: example.length > 0 ? inferSchemaFromExample(example[0]) : { type: "string" },
+      items:
+        example.length > 0
+          ? inferSchemaFromExample(example[0])
+          : { type: "string" },
     };
   }
 
@@ -1900,14 +2223,18 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
     case "string":
       return { type: "string" };
     case "number":
-      return Number.isInteger(example) ? { type: "integer" } : { type: "number" };
+      return Number.isInteger(example)
+        ? { type: "integer" }
+        : { type: "number" };
     case "boolean":
       return { type: "boolean" };
     case "object":
       return {
         type: "object",
         properties: Object.fromEntries(
-          Object.entries(example as Record<string, unknown>).map(([key, value]) => [key, inferSchemaFromExample(value)]),
+          Object.entries(example as Record<string, unknown>).map(
+            ([key, value]) => [key, inferSchemaFromExample(value)],
+          ),
         ),
       };
     default:
@@ -1932,7 +2259,7 @@ function findTopLevelArrowIndex(input: string): number {
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
-  let quote: "'" | "\"" | null = null;
+  let quote: "'" | '"' | null = null;
   let escaped = false;
 
   for (let index = 0; index < input.length - 1; index += 1) {
@@ -1949,7 +2276,7 @@ function findTopLevelArrowIndex(input: string): number {
       continue;
     }
 
-    if (character === "'" || character === "\"") {
+    if (character === "'" || character === '"') {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -2006,8 +2333,10 @@ function findTopLevelArrowIndex(input: string): number {
   return -1;
 }
 
-function extractRouteChainCalls(statement: string): Array<{ name: string; value: string; }> {
-  const results: Array<{ name: string; value: string; }> = [];
+function extractRouteChainCalls(
+  statement: string,
+): Array<{ name: string; value: string }> {
+  const results: Array<{ name: string; value: string }> = [];
   const regex = /(?:Route::|->)(prefix|middleware|controller|name)\(([^)]*)\)/g;
 
   for (const match of statement.matchAll(regex)) {
@@ -2037,7 +2366,7 @@ function shortPhpClassName(input: string): string {
 
 function countBraceDelta(input: string): number {
   let delta = 0;
-  let quote: "'" | "\"" | null = null;
+  let quote: "'" | '"' | null = null;
   let escaped = false;
 
   for (const character of input) {
@@ -2051,7 +2380,7 @@ function countBraceDelta(input: string): number {
       continue;
     }
 
-    if ((character === "'" || character === "\"")) {
+    if (character === "'" || character === '"') {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -2076,11 +2405,14 @@ function countBraceDelta(input: string): number {
   return delta;
 }
 
-function findTopLevelStatementTerminator(input: string, startIndex: number): number {
+function findTopLevelStatementTerminator(
+  input: string,
+  startIndex: number,
+): number {
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
-  let quote: "'" | "\"" | null = null;
+  let quote: "'" | '"' | null = null;
   let escaped = false;
 
   for (let index = startIndex; index < input.length; index += 1) {
@@ -2096,7 +2428,7 @@ function findTopLevelStatementTerminator(input: string, startIndex: number): num
       continue;
     }
 
-    if (character === "'" || character === "\"") {
+    if (character === "'" || character === '"') {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -2139,7 +2471,12 @@ function findTopLevelStatementTerminator(input: string, startIndex: number): num
       continue;
     }
 
-    if (character === ";" && parenDepth === 0 && bracketDepth === 0 && braceDepth === 0) {
+    if (
+      character === ";" &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
+    ) {
       return index;
     }
   }
@@ -2173,7 +2510,9 @@ function camelCase(input: string): string {
   return clean
     .split(" ")
     .filter(Boolean)
-    .map((part, index) => index === 0 ? part.toLowerCase() : capitalize(part.toLowerCase()))
+    .map((part, index) =>
+      index === 0 ? part.toLowerCase() : capitalize(part.toLowerCase()),
+    )
     .join("");
 }
 

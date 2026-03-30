@@ -4,7 +4,12 @@ import { promises as fs } from "node:fs";
 import { inferBearerAuthFromMiddleware } from "../core/auth-middleware";
 import { listFiles } from "../core/fs";
 import { dedupeParameters } from "../core/dedupe";
-import { escapeRegExp, extractBalanced, splitOnce, splitTopLevel } from "../core/parsing";
+import {
+  escapeRegExp,
+  extractBalanced,
+  splitOnce,
+  splitTopLevel,
+} from "../core/parsing";
 import type {
   BrunogenConfig,
   GenerationWarning,
@@ -89,7 +94,15 @@ export async function scanGoProject(
   const seenEndpoints = new Set<string>();
 
   for (const file of files) {
-    const parsed = parseRoutesFromGoFile(file, framework, functionIndex, structIndex, handlerCache, seenEndpoints, config);
+    const parsed = parseRoutesFromGoFile(
+      file,
+      framework,
+      functionIndex,
+      structIndex,
+      handlerCache,
+      seenEndpoints,
+      config,
+    );
     endpoints.push(...parsed.endpoints);
     warnings.push(...parsed.warnings);
   }
@@ -122,9 +135,12 @@ async function loadGoFiles(root: string): Promise<GoFile[]> {
   return files;
 }
 
-function buildGoFunctionIndex(files: GoFile[]): Map<string, GoFunctionRecord[]> {
+function buildGoFunctionIndex(
+  files: GoFile[],
+): Map<string, GoFunctionRecord[]> {
   const index = new Map<string, GoFunctionRecord[]>();
-  const regex = /func\s*(\(([^)]*)\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:\([^)]*\)|[A-Za-z0-9_\*\[\]\.]+)?\s*\{/g;
+  const regex =
+    /func\s*(\(([^)]*)\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\s*\(([^)]*)\)\s*(?:\([^)]*\)|[A-Za-z0-9_\*\[\]\.]+)?\s*\{/g;
 
   for (const file of files) {
     for (const match of file.content.matchAll(regex)) {
@@ -143,7 +159,9 @@ function buildGoFunctionIndex(files: GoFile[]): Map<string, GoFunctionRecord[]> 
       }
 
       const receiverType = receiver ? normalizeGoReceiver(receiver) : undefined;
-      const key = receiverType ? `${receiverType}.${functionName}` : functionName;
+      const key = receiverType
+        ? `${receiverType}.${functionName}`
+        : functionName;
       const existing = index.get(key) ?? [];
       existing.push({
         name: functionName,
@@ -202,7 +220,10 @@ function buildGoStructIndex(files: GoFile[]): Map<string, GoStructRecord> {
       }
 
       const braceStart = file.content.indexOf("{", match.index);
-      const structBlock = braceStart >= 0 ? extractBalanced(file.content, braceStart, "{", "}") : null;
+      const structBlock =
+        braceStart >= 0
+          ? extractBalanced(file.content, braceStart, "{", "}")
+          : null;
       if (!structBlock) {
         continue;
       }
@@ -233,7 +254,9 @@ function parseGoStructFields(structBlock: string): GoFieldRecord[] {
       continue;
     }
 
-    const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s+([^\s`]+)(?:\s+`([^`]+)`)?/);
+    const match = line.match(
+      /^([A-Za-z_][A-Za-z0-9_]*)\s+([^\s`]+)(?:\s+`([^`]+)`)?/,
+    );
     if (!match?.[1] || !match[2]) {
       continue;
     }
@@ -250,7 +273,9 @@ function parseGoStructFields(structBlock: string): GoFieldRecord[] {
 
 function parseGoTags(rawTags: string): Record<string, string> {
   const tags: Record<string, string> = {};
-  for (const match of rawTags.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:\s*"([^"]*)"/g)) {
+  for (const match of rawTags.matchAll(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*:\s*"([^"]*)"/g,
+  )) {
     if (match[1] && match[2] !== undefined) {
       tags[match[1]] = match[2];
     }
@@ -266,7 +291,7 @@ function parseRoutesFromGoFile(
   handlerCache: Map<string, GoHandlerAnalysis>,
   seenEndpoints: Set<string>,
   config: BrunogenConfig,
-): { endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[]; } {
+): { endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] } {
   return parseGoScope({
     filePath: file.filePath,
     content: file.content,
@@ -292,7 +317,7 @@ function parseGoScope(input: {
   seenEndpoints: Set<string>;
   visitedCalls: Set<string>;
   config: BrunogenConfig;
-}): { endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[]; } {
+}): { endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] } {
   const {
     filePath,
     content,
@@ -322,7 +347,9 @@ function parseGoScope(input: {
       continue;
     }
 
-    const groupMatch = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*([A-Za-z_][A-Za-z0-9_]*)\.Group\(\s*"([^"]*)"(?:\s*,\s*(.+))?\)$/);
+    const groupMatch = line.match(
+      /^([A-Za-z_][A-Za-z0-9_]*)\s*(?::=|=)\s*([A-Za-z_][A-Za-z0-9_]*)\.Group\(\s*"([^"]*)"(?:\s*,\s*(.+))?\)$/,
+    );
     if (groupMatch?.[1] && groupMatch[2] && groupMatch[3] !== undefined) {
       const groupName = groupMatch[1];
       const parentName = groupMatch[2];
@@ -333,7 +360,10 @@ function parseGoScope(input: {
 
       groups.set(groupName, {
         prefix: joinRoutePath(parent.prefix, groupMatch[3]),
-        middleware: [...parent.middleware, ...extractIdentifiers(groupMatch[4] ?? "")],
+        middleware: [
+          ...parent.middleware,
+          ...extractIdentifiers(groupMatch[4] ?? ""),
+        ],
       });
       continue;
     }
@@ -397,13 +427,29 @@ function parseGoScope(input: {
       continue;
     }
 
-    const fullPath = normalizeGoPath(joinRoutePath(group.prefix, routeMatch.path));
-    const handlerAnalysis = analyzeGoHandler(routeMatch.handler, functionIndex, structIndex, handlerCache);
-    const allMiddleware = [...group.middleware, ...extractIdentifiers(routeMatch.middleware)];
-    const authInference = inferBearerAuthFromMiddleware("Go", allMiddleware, config.auth.middlewarePatterns.bearer);
+    const fullPath = normalizeGoPath(
+      joinRoutePath(group.prefix, routeMatch.path),
+    );
+    const handlerAnalysis = analyzeGoHandler(
+      routeMatch.handler,
+      functionIndex,
+      structIndex,
+      handlerCache,
+    );
+    const allMiddleware = [
+      ...group.middleware,
+      ...extractIdentifiers(routeMatch.middleware),
+    ];
+    const authInference = inferBearerAuthFromMiddleware(
+      "Go",
+      allMiddleware,
+      config.auth.middlewarePatterns.bearer,
+    );
     const parameters = [
       ...extractPathParameters(fullPath),
-      ...handlerAnalysis.queryParameters.filter((parameter) => !fullPath.includes(`{${parameter.name}}`)),
+      ...handlerAnalysis.queryParameters.filter(
+        (parameter) => !fullPath.includes(`{${parameter.name}}`),
+      ),
       ...handlerAnalysis.headerParameters,
     ];
     const endpointKey = `${routeMatch.method}:${fullPath}`;
@@ -421,7 +467,10 @@ function parseGoScope(input: {
       tags: [inferTag(fullPath)],
       parameters,
       requestBody: handlerAnalysis.requestBody,
-      responses: handlerAnalysis.responses.length > 0 ? handlerAnalysis.responses : buildDefaultResponses(routeMatch.method),
+      responses:
+        handlerAnalysis.responses.length > 0
+          ? handlerAnalysis.responses
+          : buildDefaultResponses(routeMatch.method),
       auth: authInference.auth,
       source: {
         file: filePath,
@@ -452,11 +501,12 @@ function matchGoRootReceiver(
   line: string,
   framework: Extract<SupportedFramework, "gin" | "fiber" | "echo">,
 ): string | undefined {
-  const patterns = framework === "gin"
-    ? [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*gin\.(?:Default|New)\(/]
-    : framework === "fiber"
-      ? [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*fiber\.New\(/]
-      : [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*echo\.New\(/];
+  const patterns =
+    framework === "gin"
+      ? [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*gin\.(?:Default|New)\(/]
+      : framework === "fiber"
+        ? [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*fiber\.New\(/]
+        : [/^([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*echo\.New\(/];
 
   for (const pattern of patterns) {
     const match = line.match(pattern);
@@ -468,7 +518,9 @@ function matchGoRootReceiver(
   return undefined;
 }
 
-function parseGoRegistrationCall(line: string): { name: string; args: string[]; } | null {
+function parseGoRegistrationCall(
+  line: string,
+): { name: string; args: string[] } | null {
   const match = line.match(/^([A-Za-z_][A-Za-z0-9_]*)\((.*)\)$/);
   if (!match?.[1]) {
     return null;
@@ -483,11 +535,17 @@ function parseGoRegistrationCall(line: string): { name: string; args: string[]; 
 function matchGoRoute(
   line: string,
   framework: Extract<SupportedFramework, "gin" | "fiber" | "echo">,
-): { receiver: string; method: HttpMethod; path: string; handler: string; middleware: string; } | null {
-  const regex = framework === "fiber"
-    ? /^([A-Za-z_][A-Za-z0-9_]*)\.(Get|Post|Put|Patch|Delete|Head|Options)\(\s*"([^"]*)"\s*,\s*(.+)\)$/
-    : /^([A-Za-z_][A-Za-z0-9_]*)\.(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\(\s*"([^"]*)"\s*,\s*(.+)\)$/
-  ;
+): {
+  receiver: string;
+  method: HttpMethod;
+  path: string;
+  handler: string;
+  middleware: string;
+} | null {
+  const regex =
+    framework === "fiber"
+      ? /^([A-Za-z_][A-Za-z0-9_]*)\.(Get|Post|Put|Patch|Delete|Head|Options)\(\s*"([^"]*)"\s*,\s*(.+)\)$/
+      : /^([A-Za-z_][A-Za-z0-9_]*)\.(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\(\s*"([^"]*)"\s*,\s*(.+)\)$/;
   const match = line.match(regex);
   if (!match?.[1] || !match[2] || !match[3] || !match[4]) {
     return null;
@@ -498,12 +556,12 @@ function matchGoRoute(
     return null;
   }
 
-  const handler = framework === "echo"
-    ? argumentsList[0]
-    : argumentsList[argumentsList.length - 1];
-  const middlewareArguments = framework === "echo"
-    ? argumentsList.slice(1)
-    : argumentsList.slice(0, -1);
+  const handler =
+    framework === "echo"
+      ? argumentsList[0]
+      : argumentsList[argumentsList.length - 1];
+  const middlewareArguments =
+    framework === "echo" ? argumentsList.slice(1) : argumentsList.slice(0, -1);
 
   return {
     receiver: match[1],
@@ -543,7 +601,12 @@ function analyzeGoHandler(
       code: "GO_HANDLER_NOT_FOUND",
       message: `Go: skipped handler '${handlerReference}' because the function could not be resolved for inference.`,
     };
-    const result = { queryParameters: [], headerParameters: [], responses: [], warnings: [warning] };
+    const result = {
+      queryParameters: [],
+      headerParameters: [],
+      responses: [],
+      warnings: [warning],
+    };
     handlerCache.set(cacheKey, result);
     return result;
   }
@@ -553,27 +616,40 @@ function analyzeGoHandler(
   const responses = extractGoResponses(functionRecord.body);
 
   const variableTypes = new Map<string, string>();
-  for (const declaration of functionRecord.body.matchAll(/var\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_\.\*\[\]]*)/g)) {
+  for (const declaration of functionRecord.body.matchAll(
+    /var\s+([A-Za-z_][A-Za-z0-9_]*)\s+([A-Za-z_][A-Za-z0-9_\.\*\[\]]*)/g,
+  )) {
     if (declaration[1] && declaration[2]) {
       variableTypes.set(declaration[1], declaration[2].replace(/^\*/, ""));
     }
   }
 
-  for (const declaration of functionRecord.body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_\.]*)\{\s*\}/g)) {
+  for (const declaration of functionRecord.body.matchAll(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*([A-Za-z_][A-Za-z0-9_\.]*)\{\s*\}/g,
+  )) {
     if (declaration[1] && declaration[2]) {
       variableTypes.set(declaration[1], declaration[2].replace(/^\*/, ""));
     }
   }
 
-  for (const declaration of functionRecord.body.matchAll(/([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*new\(\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\)/g)) {
+  for (const declaration of functionRecord.body.matchAll(
+    /([A-Za-z_][A-Za-z0-9_]*)\s*:=\s*new\(\s*([A-Za-z_][A-Za-z0-9_\.]*)\s*\)/g,
+  )) {
     if (declaration[1] && declaration[2]) {
       variableTypes.set(declaration[1], declaration[2].replace(/^\*/, ""));
     }
   }
 
-  const bindMatch = functionRecord.body.match(/(?:ShouldBindJSON|BindJSON|ShouldBind|Bind|BodyParser)\(\s*&?([A-Za-z_][A-Za-z0-9_]*)\s*\)/);
+  const bindMatch = functionRecord.body.match(
+    /(?:ShouldBindJSON|BindJSON|ShouldBind|Bind|BodyParser)\(\s*&?([A-Za-z_][A-Za-z0-9_]*)\s*\)/,
+  );
   if (!bindMatch?.[1]) {
-    const result = { queryParameters, headerParameters, responses, warnings: [] };
+    const result = {
+      queryParameters,
+      headerParameters,
+      responses,
+      warnings: [],
+    };
     handlerCache.set(cacheKey, result);
     return result;
   }
@@ -586,34 +662,57 @@ function analyzeGoHandler(
       message: `Go: found a bind call in '${handlerReference}' but could not infer which struct type it targets.`,
       location: { file: functionRecord.filePath },
     };
-    const result = { queryParameters, headerParameters, responses, warnings: [warning] };
+    const result = {
+      queryParameters,
+      headerParameters,
+      responses,
+      warnings: [warning],
+    };
     handlerCache.set(cacheKey, result);
     return result;
   }
 
-  const structInfo = resolveGoStruct(structName.replace(/^\*/, ""), structIndex);
+  const structInfo = resolveGoStruct(
+    structName.replace(/^\*/, ""),
+    structIndex,
+  );
   if (!structInfo) {
     const warning = {
       code: "GO_STRUCT_NOT_FOUND",
       message: `Go: could not resolve struct '${structName}' while inferring the request schema. Keep it in the same package for best-effort inference.`,
       location: { file: functionRecord.filePath },
     };
-    const result = { queryParameters, headerParameters, responses, warnings: [warning] };
+    const result = {
+      queryParameters,
+      headerParameters,
+      responses,
+      warnings: [warning],
+    };
     handlerCache.set(cacheKey, result);
     return result;
   }
 
-  const built = buildSchemaFromGoStruct(structInfo.name, structIndex, new Set());
+  const built = buildSchemaFromGoStruct(
+    structInfo.name,
+    structIndex,
+    new Set(),
+  );
   const result: GoHandlerAnalysis = {
-    requestBody: built.bodyProperties ? {
-      contentType: "application/json",
-      schema: {
-        type: "object",
-        properties: built.bodyProperties,
-        required: built.bodyRequired.length > 0 ? built.bodyRequired : undefined,
-      },
-    } : undefined,
-    queryParameters: dedupeParameters([...queryParameters, ...built.queryParameters]),
+    requestBody: built.bodyProperties
+      ? {
+          contentType: "application/json",
+          schema: {
+            type: "object",
+            properties: built.bodyProperties,
+            required:
+              built.bodyRequired.length > 0 ? built.bodyRequired : undefined,
+          },
+        }
+      : undefined,
+    queryParameters: dedupeParameters([
+      ...queryParameters,
+      ...built.queryParameters,
+    ]),
     headerParameters: dedupeParameters(headerParameters),
     responses,
     warnings: [],
@@ -627,7 +726,11 @@ function buildSchemaFromGoStruct(
   structName: string,
   structIndex: Map<string, GoStructRecord>,
   seen: Set<string>,
-): { bodyProperties?: Record<string, SchemaObject>; bodyRequired: string[]; queryParameters: NormalizedParameter[]; } {
+): {
+  bodyProperties?: Record<string, SchemaObject>;
+  bodyRequired: string[];
+  queryParameters: NormalizedParameter[];
+} {
   if (seen.has(structName)) {
     return { bodyProperties: {}, bodyRequired: [], queryParameters: [] };
   }
@@ -648,7 +751,10 @@ function buildSchemaFromGoStruct(
     const formTag = stripGoTagOptions(field.tags.form);
     const uriTag = stripGoTagOptions(field.tags.uri || field.tags.param);
     const required = isGoFieldRequired(field.tags);
-    const schema = applyGoValidationTags(schemaFromGoType(field.typeName, structIndex, seen), field.tags);
+    const schema = applyGoValidationTags(
+      schemaFromGoType(field.typeName, structIndex, seen),
+      field.tags,
+    );
 
     if (uriTag && uriTag !== "-") {
       queryParameters.push({
@@ -670,11 +776,12 @@ function buildSchemaFromGoStruct(
       continue;
     }
 
-    const bodyName = jsonTag && jsonTag !== "-"
-      ? jsonTag
-      : formTag && formTag !== "-"
-        ? formTag
-        : lowerFirst(field.fieldName);
+    const bodyName =
+      jsonTag && jsonTag !== "-"
+        ? jsonTag
+        : formTag && formTag !== "-"
+          ? formTag
+          : lowerFirst(field.fieldName);
 
     if (bodyName === "-") {
       continue;
@@ -738,7 +845,8 @@ function schemaFromGoType(
     return {
       type: "object",
       properties: nested.bodyProperties,
-      required: nested.bodyRequired.length > 0 ? nested.bodyRequired : undefined,
+      required:
+        nested.bodyRequired.length > 0 ? nested.bodyRequired : undefined,
     };
   }
 
@@ -757,9 +865,14 @@ function isGoFieldRequired(tags: Record<string, string>): boolean {
   return /\brequired\b/i.test(combined) && !/\bomitempty\b/i.test(combined);
 }
 
-function applyGoValidationTags(schema: SchemaObject, tags: Record<string, string>): SchemaObject {
+function applyGoValidationTags(
+  schema: SchemaObject,
+  tags: Record<string, string>,
+): SchemaObject {
   const nextSchema: SchemaObject = { ...schema };
-  const rules = [tags.binding, tags.validate].filter(Boolean).flatMap((value) => splitGoValidationRules(value ?? ""));
+  const rules = [tags.binding, tags.validate]
+    .filter(Boolean)
+    .flatMap((value) => splitGoValidationRules(value ?? ""));
 
   for (const rule of rules) {
     const [name, rawValue] = splitOnce(rule, "=");
@@ -794,7 +907,10 @@ function applyGoValidationTags(schema: SchemaObject, tags: Record<string, string
 }
 
 function splitGoValidationRules(value: string): string[] {
-  return value.split(",").map((rule) => rule.trim()).filter(Boolean);
+  return value
+    .split(",")
+    .map((rule) => rule.trim())
+    .filter(Boolean);
 }
 
 function parseGoNumericTag(value?: string): number | undefined {
@@ -827,7 +943,10 @@ function resolveGoStruct(
   typeName: string,
   structIndex: Map<string, GoStructRecord>,
 ): GoStructRecord | undefined {
-  return structIndex.get(typeName) ?? structIndex.get(typeName.split(".").pop() ?? typeName);
+  return (
+    structIndex.get(typeName) ??
+    structIndex.get(typeName.split(".").pop() ?? typeName)
+  );
 }
 
 function normalizeGoHandlerReference(input: string): string {
@@ -841,11 +960,13 @@ function normalizeGoReceiver(receiver: string): string {
 }
 
 function normalizeGoPath(pathname: string): string {
-  return pathname
-    .replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")
-    .replace(/\*([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")
-    .replace(/\/+/g, "/")
-    .replace(/\/$/, "") || "/";
+  return (
+    pathname
+      .replace(/:([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")
+      .replace(/\*([A-Za-z_][A-Za-z0-9_]*)/g, "{$1}")
+      .replace(/\/+/g, "/")
+      .replace(/\/$/, "") || "/"
+  );
 }
 
 function extractPathParameters(pathname: string): NormalizedParameter[] {
@@ -858,15 +979,23 @@ function extractPathParameters(pathname: string): NormalizedParameter[] {
 }
 
 function buildGoOperationId(
-  route: { method: HttpMethod; handler: string; },
+  route: { method: HttpMethod; handler: string },
   pathname: string,
 ): string {
-  const cleanHandler = normalizeGoHandlerReference(route.handler).replace(/[^a-zA-Z0-9.]/g, "");
+  const cleanHandler = normalizeGoHandlerReference(route.handler).replace(
+    /[^a-zA-Z0-9.]/g,
+    "",
+  );
   if (cleanHandler) {
     return cleanHandler.replace(/\./g, "");
   }
 
-  const pathPart = pathname.replace(/[{}]/g, "").split("/").filter(Boolean).map(capitalize).join("");
+  const pathPart = pathname
+    .replace(/[{}]/g, "")
+    .split("/")
+    .filter(Boolean)
+    .map(capitalize)
+    .join("");
   return `${route.method}${pathPart || "Root"}`;
 }
 
@@ -875,32 +1004,44 @@ function inferTag(pathname: string): string {
 }
 
 function buildDefaultResponses(method: HttpMethod): NormalizedResponse[] {
-  return [{
-    statusCode: methodToResponseStatus[method],
-    description: "Generated default response",
-  }];
+  return [
+    {
+      statusCode: methodToResponseStatus[method],
+      description: "Generated default response",
+    },
+  ];
 }
 
 function extractGoQueryParameters(body: string): NormalizedParameter[] {
   const parameters = new Map<string, SchemaObject>();
 
-  for (const match of body.matchAll(/\.\s*(?:Query|DefaultQuery|QueryParam)\(\s*"([^"]+)"/g)) {
+  for (const match of body.matchAll(
+    /\.\s*(?:Query|DefaultQuery|QueryParam)\(\s*"([^"]+)"/g,
+  )) {
     if (match[1]) {
       parameters.set(match[1], parameters.get(match[1]) ?? { type: "string" });
     }
   }
 
-  for (const match of body.matchAll(/strconv\.(?:Atoi|ParseInt|ParseUint)\(\s*([A-Za-z_][A-Za-z0-9_]*)/g)) {
+  for (const match of body.matchAll(
+    /strconv\.(?:Atoi|ParseInt|ParseUint)\(\s*([A-Za-z_][A-Za-z0-9_]*)/g,
+  )) {
     const variableName = match[1];
-    const sourceMatch = new RegExp(`${escapeRegExp(variableName)}\\s*:=\\s*[^\\n]*\\.\\s*(?:Query|DefaultQuery|QueryParam)\\(\\s*"([^"]+)"`).exec(body);
+    const sourceMatch = new RegExp(
+      `${escapeRegExp(variableName)}\\s*:=\\s*[^\\n]*\\.\\s*(?:Query|DefaultQuery|QueryParam)\\(\\s*"([^"]+)"`,
+    ).exec(body);
     if (sourceMatch?.[1]) {
       parameters.set(sourceMatch[1], { type: "integer" });
     }
   }
 
-  for (const match of body.matchAll(/strconv\.ParseFloat\(\s*([A-Za-z_][A-Za-z0-9_]*)/g)) {
+  for (const match of body.matchAll(
+    /strconv\.ParseFloat\(\s*([A-Za-z_][A-Za-z0-9_]*)/g,
+  )) {
     const variableName = match[1];
-    const sourceMatch = new RegExp(`${escapeRegExp(variableName)}\\s*:=\\s*[^\\n]*\\.\\s*(?:Query|DefaultQuery|QueryParam)\\(\\s*"([^"]+)"`).exec(body);
+    const sourceMatch = new RegExp(
+      `${escapeRegExp(variableName)}\\s*:=\\s*[^\\n]*\\.\\s*(?:Query|DefaultQuery|QueryParam)\\(\\s*"([^"]+)"`,
+    ).exec(body);
     if (sourceMatch?.[1]) {
       parameters.set(sourceMatch[1], { type: "number" });
     }
@@ -923,7 +1064,9 @@ function extractGoHeaderParameters(body: string): NormalizedParameter[] {
     }
   }
 
-  for (const match of body.matchAll(/Request\(\)\.Header\.Get\(\s*"([^"]+)"/g)) {
+  for (const match of body.matchAll(
+    /Request\(\)\.Header\.Get\(\s*"([^"]+)"/g,
+  )) {
     if (match[1]) {
       headers.add(match[1]);
     }
@@ -947,10 +1090,15 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       continue;
     }
 
-    const statusJsonMatch = line.match(/\.Status\(\s*([^)]+)\s*\)\.JSON\(\s*(.+)\)$/);
+    const statusJsonMatch = line.match(
+      /\.Status\(\s*([^)]+)\s*\)\.JSON\(\s*(.+)\)$/,
+    );
     if (statusJsonMatch?.[1] && statusJsonMatch[2]) {
       const statusCode = parseGoStatusCode(statusJsonMatch[1]) ?? "200";
-      const example = buildGoExpressionExample(statusJsonMatch[2], exampleContext);
+      const example = buildGoExpressionExample(
+        statusJsonMatch[2],
+        exampleContext,
+      );
       if (!responses.has(statusCode)) {
         responses.set(statusCode, {
           statusCode,
@@ -962,10 +1110,15 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       }
     }
 
-    const abortJsonMatch = line.match(/\.AbortWithStatusJSON\(\s*([^,]+)\s*,\s*(.+)\)$/);
+    const abortJsonMatch = line.match(
+      /\.AbortWithStatusJSON\(\s*([^,]+)\s*,\s*(.+)\)$/,
+    );
     if (abortJsonMatch?.[1] && abortJsonMatch[2]) {
       const statusCode = parseGoStatusCode(abortJsonMatch[1]) ?? "500";
-      const example = buildGoExpressionExample(abortJsonMatch[2], exampleContext);
+      const example = buildGoExpressionExample(
+        abortJsonMatch[2],
+        exampleContext,
+      );
       if (!responses.has(statusCode)) {
         responses.set(statusCode, {
           statusCode,
@@ -1035,19 +1188,29 @@ function extractGoResponses(body: string): NormalizedResponse[] {
     const data = buildGoExpressionExample(args[3], exampleContext);
     const errorDetail = parseGoStringLiteral(args[4]) ?? "Error";
     if (!responses.has(statusCode)) {
-      responses.set(statusCode, buildResponseWrapper(statusCode, message, data, errorDetail));
+      responses.set(
+        statusCode,
+        buildResponseWrapper(statusCode, message, data, errorDetail),
+      );
     }
   }
 
-  for (const args of extractMethodCallArguments(body, "InternalErrorResponse")) {
+  for (const args of extractMethodCallArguments(
+    body,
+    "InternalErrorResponse",
+  )) {
     if (args.length < 3) {
       continue;
     }
 
     const message = parseGoStringLiteral(args[1]) ?? "Internal server error";
-    const errorDetail = parseGoStringLiteral(args[2]) ?? "Internal server error";
+    const errorDetail =
+      parseGoStringLiteral(args[2]) ?? "Internal server error";
     if (!responses.has("500")) {
-      responses.set("500", buildResponseWrapper("500", message, null, errorDetail));
+      responses.set(
+        "500",
+        buildResponseWrapper("500", message, null, errorDetail),
+      );
     }
   }
 
@@ -1056,10 +1219,12 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       continue;
     }
 
-    const statusCode = args.length === 1
-      ? "200"
-      : parseGoStatusCode(args[0]) ?? "200";
-    const example = buildGoExpressionExample(args.length === 1 ? args[0] : args[1], exampleContext);
+    const statusCode =
+      args.length === 1 ? "200" : (parseGoStatusCode(args[0]) ?? "200");
+    const example = buildGoExpressionExample(
+      args.length === 1 ? args[0] : args[1],
+      exampleContext,
+    );
     if (!responses.has(statusCode)) {
       responses.set(statusCode, {
         statusCode,
@@ -1125,7 +1290,10 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
   if (Array.isArray(example)) {
     return {
       type: "array",
-      items: example.length > 0 ? inferSchemaFromExample(example[0]) : { type: "string" },
+      items:
+        example.length > 0
+          ? inferSchemaFromExample(example[0])
+          : { type: "string" },
     };
   }
 
@@ -1133,14 +1301,18 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
     case "string":
       return { type: "string" };
     case "number":
-      return Number.isInteger(example) ? { type: "integer" } : { type: "number" };
+      return Number.isInteger(example)
+        ? { type: "integer" }
+        : { type: "number" };
     case "boolean":
       return { type: "boolean" };
     case "object":
       return {
         type: "object",
         properties: Object.fromEntries(
-          Object.entries(example as Record<string, unknown>).map(([key, value]) => [key, inferSchemaFromExample(value)]),
+          Object.entries(example as Record<string, unknown>).map(
+            ([key, value]) => [key, inferSchemaFromExample(value)],
+          ),
         ),
       };
     default:
@@ -1148,7 +1320,10 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
   }
 }
 
-function extractMethodCallArguments(body: string, methodName: string): string[][] {
+function extractMethodCallArguments(
+  body: string,
+  methodName: string,
+): string[][] {
   const results: string[][] = [];
   let offset = 0;
 
@@ -1159,7 +1334,10 @@ function extractMethodCallArguments(body: string, methodName: string): string[][
     }
 
     const openParenIndex = body.indexOf("(", callIndex);
-    const argsBlock = openParenIndex >= 0 ? extractBalanced(body, openParenIndex, "(", ")") : null;
+    const argsBlock =
+      openParenIndex >= 0
+        ? extractBalanced(body, openParenIndex, "(", ")")
+        : null;
     if (!argsBlock) {
       break;
     }
@@ -1208,7 +1386,10 @@ function parseGoStringLiteral(expression: string): string | undefined {
   return match?.[1];
 }
 
-function buildGoExpressionExample(expression: string, context?: GoExampleContext): unknown {
+function buildGoExpressionExample(
+  expression: string,
+  context?: GoExampleContext,
+): unknown {
   const trimmed = expression.trim();
 
   if (trimmed === "nil") {
@@ -1245,7 +1426,9 @@ function buildGoExpressionExample(expression: string, context?: GoExampleContext
     }
   }
 
-  const selectorMatch = trimmed.match(/^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)$/);
+  const selectorMatch = trimmed.match(
+    /^[A-Za-z_][A-Za-z0-9_]*\.([A-Za-z_][A-Za-z0-9_]*)$/,
+  );
   if (selectorMatch?.[1]) {
     return buildGoFieldExample(selectorMatch[1]);
   }
@@ -1262,7 +1445,10 @@ function buildGoExpressionExample(expression: string, context?: GoExampleContext
 
   if (/^\[\]/.test(trimmed)) {
     const literalStart = trimmed.indexOf("{");
-    const arrayBlock = literalStart >= 0 ? extractBalanced(trimmed, literalStart, "{", "}") : null;
+    const arrayBlock =
+      literalStart >= 0
+        ? extractBalanced(trimmed, literalStart, "{", "}")
+        : null;
     if (!arrayBlock) {
       return [];
     }
@@ -1275,7 +1461,10 @@ function buildGoExpressionExample(expression: string, context?: GoExampleContext
   return {};
 }
 
-function parseGoMapExample(mapBlock: string, context?: GoExampleContext): Record<string, unknown> {
+function parseGoMapExample(
+  mapBlock: string,
+  context?: GoExampleContext,
+): Record<string, unknown> {
   const block = mapBlock.trim();
   if (!block.startsWith("{") || !block.endsWith("}")) {
     return {};
@@ -1293,13 +1482,19 @@ function parseGoMapExample(mapBlock: string, context?: GoExampleContext): Record
       continue;
     }
 
-    result[key] = buildGoExpressionExample(entry.slice(separatorIndex + 1), context);
+    result[key] = buildGoExpressionExample(
+      entry.slice(separatorIndex + 1),
+      context,
+    );
   }
 
   return result;
 }
 
-function parseGoStructExample(structBlock: string, context?: GoExampleContext): Record<string, unknown> {
+function parseGoStructExample(
+  structBlock: string,
+  context?: GoExampleContext,
+): Record<string, unknown> {
   const block = structBlock.trim();
   if (!block.startsWith("{") || !block.endsWith("}")) {
     return {};
@@ -1317,7 +1512,10 @@ function parseGoStructExample(structBlock: string, context?: GoExampleContext): 
       continue;
     }
 
-    result[normalizeGoFieldName(key)] = buildGoExpressionExample(entry.slice(separatorIndex + 1), context);
+    result[normalizeGoFieldName(key)] = buildGoExpressionExample(
+      entry.slice(separatorIndex + 1),
+      context,
+    );
   }
 
   return result;
@@ -1353,7 +1551,10 @@ function extractGoVariableAssignments(body: string): Map<string, string> {
   return assignments;
 }
 
-function resolveGoVariableExample(name: string, context?: GoExampleContext): unknown {
+function resolveGoVariableExample(
+  name: string,
+  context?: GoExampleContext,
+): unknown {
   if (!context) {
     return undefined;
   }
@@ -1412,7 +1613,11 @@ function buildGoFieldExample(fieldName: string): unknown {
     return "customer_123";
   }
 
-  if (normalized === "age" || normalized.endsWith("_age") || normalized === "total") {
+  if (
+    normalized === "age" ||
+    normalized.endsWith("_age") ||
+    normalized === "total"
+  ) {
     return 1;
   }
 
@@ -1429,7 +1634,9 @@ function buildGoFieldExample(fieldName: string): unknown {
   }
 
   if (normalized.includes("token")) {
-    return fieldName === fieldName.toUpperCase() ? `${fieldName}_VALUE` : "token";
+    return fieldName === fieldName.toUpperCase()
+      ? `${fieldName}_VALUE`
+      : "token";
   }
 
   if (normalized.startsWith("is_") || normalized.startsWith("has_")) {
@@ -1473,9 +1680,11 @@ function extractGoStructLiteral(expression: string): string | null {
     return null;
   }
 
-   const literalStart = trimmed.indexOf("{", match[0].length - 1);
-   return literalStart >= 0 ? extractBalanced(trimmed, literalStart, "{", "}") : null;
- }
+  const literalStart = trimmed.indexOf("{", match[0].length - 1);
+  return literalStart >= 0
+    ? extractBalanced(trimmed, literalStart, "{", "}")
+    : null;
+}
 
 function joinRoutePath(prefix: string, rawPath: string): string {
   const segments = [prefix, rawPath]
@@ -1489,7 +1698,9 @@ function joinRoutePath(prefix: string, rawPath: string): string {
 function extractIdentifiers(input: string): string[] {
   return [...input.matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)]
     .map((match) => match[0])
-    .filter((identifier) => !["func", "return", "nil", "error"].includes(identifier));
+    .filter(
+      (identifier) => !["func", "return", "nil", "error"].includes(identifier),
+    );
 }
 
 function extractGoPackageName(content: string): string {
@@ -1513,11 +1724,14 @@ function capitalize(input: string): string {
   return input ? `${input[0].toUpperCase()}${input.slice(1)}` : input;
 }
 
-function findTopLevelStatementTerminator(input: string, startIndex: number): number {
+function findTopLevelStatementTerminator(
+  input: string,
+  startIndex: number,
+): number {
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
-  let quote: "'" | "\"" | "`" | null = null;
+  let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
 
   for (let index = startIndex; index < input.length; index += 1) {
@@ -1533,7 +1747,7 @@ function findTopLevelStatementTerminator(input: string, startIndex: number): num
       continue;
     }
 
-    if (character === "'" || character === "\"" || character === "`") {
+    if (character === "'" || character === '"' || character === "`") {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -1559,10 +1773,10 @@ function findTopLevelStatementTerminator(input: string, startIndex: number): num
     } else if (character === "}") {
       braceDepth -= 1;
     } else if (
-      character === ";"
-      && parenDepth === 0
-      && bracketDepth === 0
-      && braceDepth === 0
+      character === ";" &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
     ) {
       return index;
     }
@@ -1575,7 +1789,7 @@ function findGoStatementTerminator(input: string, startIndex: number): number {
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
-  let quote: "'" | "\"" | "`" | null = null;
+  let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
 
   for (let index = startIndex; index < input.length; index += 1) {
@@ -1591,7 +1805,7 @@ function findGoStatementTerminator(input: string, startIndex: number): number {
       continue;
     }
 
-    if (character === "'" || character === "\"" || character === "`") {
+    if (character === "'" || character === '"' || character === "`") {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -1617,10 +1831,10 @@ function findGoStatementTerminator(input: string, startIndex: number): number {
     } else if (character === "}") {
       braceDepth -= 1;
     } else if (
-      (character === "\n" || character === ";")
-      && parenDepth === 0
-      && bracketDepth === 0
-      && braceDepth === 0
+      (character === "\n" || character === ";") &&
+      parenDepth === 0 &&
+      bracketDepth === 0 &&
+      braceDepth === 0
     ) {
       return index;
     }

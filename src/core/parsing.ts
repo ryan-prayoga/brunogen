@@ -144,7 +144,10 @@ export function splitTopLevel(input: string, separator: string): string[] {
  * @param sequence - Delimiter sequence (e.g. "??", "||")
  * @returns Array of split segments, or [trimmed input] when no split occurs
  */
-export function splitTopLevelSequence(input: string, sequence: string): string[] {
+export function splitTopLevelSequence(
+  input: string,
+  sequence: string,
+): string[] {
   const results: string[] = [];
   let current = "";
   let parenDepth = 0;
