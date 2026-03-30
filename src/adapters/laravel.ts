@@ -4,7 +4,7 @@ import { promises as fs } from "node:fs";
 import { listFiles } from "../core/fs";
 import { dedupeParameters, dedupeResponsesByStatusCode } from "../core/dedupe";
 import { defaultStatusForMethod } from "../core/responses";
-import { extractBalanced, splitTopLevel } from "../core/parsing";
+import { extractBalanced, splitTopLevel, splitTopLevelSequence } from "../core/parsing";
 import type {
   GenerationWarning,
   HttpMethod,
@@ -2145,78 +2145,6 @@ function findTopLevelStatementTerminator(input: string, startIndex: number): num
   }
 
   return -1;
-}
-
-function splitTopLevelSequence(input: string, sequence: string): string[] {
-  const results: string[] = [];
-  let current = "";
-  let parenDepth = 0;
-  let bracketDepth = 0;
-  let braceDepth = 0;
-  let quote: "'" | "\"" | null = null;
-  let escaped = false;
-
-  for (let index = 0; index < input.length; index += 1) {
-    const character = input[index];
-
-    if (escaped) {
-      current += character;
-      escaped = false;
-      continue;
-    }
-
-    if (character === "\\") {
-      current += character;
-      escaped = true;
-      continue;
-    }
-
-    if (character === "'" || character === "\"") {
-      if (quote === character) {
-        quote = null;
-      } else if (!quote) {
-        quote = character;
-      }
-      current += character;
-      continue;
-    }
-
-    if (!quote) {
-      if (character === "(") {
-        parenDepth += 1;
-      } else if (character === ")") {
-        parenDepth -= 1;
-      } else if (character === "[") {
-        bracketDepth += 1;
-      } else if (character === "]") {
-        bracketDepth -= 1;
-      } else if (character === "{") {
-        braceDepth += 1;
-      } else if (character === "}") {
-        braceDepth -= 1;
-      } else if (
-        input.startsWith(sequence, index) &&
-        parenDepth === 0 &&
-        bracketDepth === 0 &&
-        braceDepth === 0
-      ) {
-        if (current.trim()) {
-          results.push(current.trim());
-        }
-        current = "";
-        index += sequence.length - 1;
-        continue;
-      }
-    }
-
-    current += character;
-  }
-
-  if (current.trim()) {
-    results.push(current.trim());
-  }
-
-  return results.length > 0 ? results : [input.trim()];
 }
 
 function splitOnce(input: string, delimiter: string): [string, string] {

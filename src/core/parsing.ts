@@ -13,10 +13,10 @@ export function extractBalanced(
   input: string,
   startIndex: number,
   open: string,
-  close: string
+  close: string,
 ): string | null {
   let depth = 0;
-  let quote: "'" | '"' | '`' | null = null;
+  let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
 
   for (let index = startIndex; index < input.length; index += 1) {
@@ -32,7 +32,7 @@ export function extractBalanced(
       continue;
     }
 
-    if (character === "'" || character === '"' || character === '`') {
+    if (character === "'" || character === '"' || character === "`") {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -74,7 +74,7 @@ export function splitTopLevel(input: string, separator: string): string[] {
   let parenDepth = 0;
   let bracketDepth = 0;
   let braceDepth = 0;
-  let quote: "'" | '"' | '`' | null = null;
+  let quote: "'" | '"' | "`" | null = null;
   let escaped = false;
 
   for (const character of input) {
@@ -90,7 +90,7 @@ export function splitTopLevel(input: string, separator: string): string[] {
       continue;
     }
 
-    if (character === "'" || character === '"' || character === '`') {
+    if (character === "'" || character === '"' || character === "`") {
       if (quote === character) {
         quote = null;
       } else if (!quote) {
@@ -138,6 +138,85 @@ export function splitTopLevel(input: string, separator: string): string[] {
 }
 
 /**
+ * Splits a string by a multi-character sequence at top level only.
+ *
+ * @param input - Source string
+ * @param sequence - Delimiter sequence (e.g. "??", "||")
+ * @returns Array of split segments, or [trimmed input] when no split occurs
+ */
+export function splitTopLevelSequence(input: string, sequence: string): string[] {
+  const results: string[] = [];
+  let current = "";
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let braceDepth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+
+  for (let index = 0; index < input.length; index += 1) {
+    const character = input[index];
+
+    if (escaped) {
+      current += character;
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      current += character;
+      escaped = true;
+      continue;
+    }
+
+    if (character === "'" || character === '"' || character === "`") {
+      if (quote === character) {
+        quote = null;
+      } else if (!quote) {
+        quote = character;
+      }
+      current += character;
+      continue;
+    }
+
+    if (!quote) {
+      if (character === "(") {
+        parenDepth += 1;
+      } else if (character === ")") {
+        parenDepth -= 1;
+      } else if (character === "[") {
+        bracketDepth += 1;
+      } else if (character === "]") {
+        bracketDepth -= 1;
+      } else if (character === "{") {
+        braceDepth += 1;
+      } else if (character === "}") {
+        braceDepth -= 1;
+      } else if (
+        input.startsWith(sequence, index) &&
+        parenDepth === 0 &&
+        bracketDepth === 0 &&
+        braceDepth === 0
+      ) {
+        if (current.trim()) {
+          results.push(current.trim());
+        }
+        current = "";
+        index += sequence.length - 1;
+        continue;
+      }
+    }
+
+    current += character;
+  }
+
+  if (current.trim()) {
+    results.push(current.trim());
+  }
+
+  return results.length > 0 ? results : [input.trim()];
+}
+
+/**
  * Escapes regular-expression metacharacters in a string.
  *
  * @param value - Raw string that may contain regex control characters
@@ -154,7 +233,10 @@ export function escapeRegExp(value: string): string {
  * @param separator - Delimiter to split on once
  * @returns Tuple of [left, right], where right is undefined when separator is absent
  */
-export function splitOnce(input: string, separator: string): [string, string | undefined] {
+export function splitOnce(
+  input: string,
+  separator: string,
+): [string, string | undefined] {
   const index = input.indexOf(separator);
   if (index < 0) {
     return [input, undefined];
