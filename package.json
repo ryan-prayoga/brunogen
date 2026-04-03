@@ -53,6 +53,8 @@
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@typescript-eslint/parser": "^7.18.0",
+    "eslint": "^8.57.1",
     "tsup": "^8.5.1",
     "typescript": "^6.0.2",
     "vitest": "^4.1.1"

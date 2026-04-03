@@ -1,6 +1,7 @@
 import SwaggerParser from "@apidevtools/swagger-parser";
 
 import { scanExpressProject } from "../adapters/express";
+import { scanExpressProjectAst } from "../adapters/express-ast";
 import { scanLaravelProject } from "../adapters/laravel";
 import { scanGoProject } from "../adapters/go";
 import { buildOpenApi } from "./openapi";
@@ -138,7 +139,14 @@ async function scanProject(
     case "echo":
       return scanGoProject(root, framework, projectName, projectVersion, config);
     case "express":
-      return scanExpressProject(root, projectName, projectVersion, config);
+      // Phase 2: AST-first with regex fallback
+      try {
+        return await scanExpressProjectAst(root, projectName, projectVersion, config);
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        process.stderr.write(`[brunogen] AST scan failed: ${msg} — falling back to regex parser\n`);
+        return scanExpressProject(root, projectName, projectVersion, config);
+      }
     default:
       throw new Error(`Unsupported framework: ${framework satisfies never}`);
   }
