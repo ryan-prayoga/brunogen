@@ -343,31 +343,56 @@ function parseRoutersAst(
       }
     }
 
-    // app.use('/path', router) — router mounts
+      // app.use('/path', router) — register mounts on the source router
     if (node.type === "CallExpression") {
       const callee = node.callee;
-      if (!callee) continue;
+      if (!callee || callee.type !== "MemberExpression") continue;
       const objName = getTargetName(callee.object);
       const propName = getPropertyName(callee.property);
 
       if (propName === "use") {
         const args = node.arguments ?? [];
-        const mountPath = args.length > 0 ? getStringValue(args[0]) : "";
-        const mountMiddleware =
-          args.length > 1 ? getTargetName(args[1]) : getTargetName(args[0]);
+        const mountPathArg = args.length > 0 ? getStringValue(args[0]) : "";
+        if (mountPathArg === null) continue; // First arg must be a string path
 
-        // Check if the mounted thing is a router (imported or local variable)
-        if (mountMiddleware) {
-          // Check if it comes from another file via import
-          const imp = fileImports.get(mountMiddleware);
-          const mountSourceFile = imp?.sourceFile;
+        // The mounted target (the router being mounted)
+        const targetName = args.length > 1 ? getTargetName(args[1]) : null;
+        if (!targetName) continue;
 
+        // Resolve the import to get source file and exported name
+        const imp = fileImports.get(targetName);
+        const mountSourceFile = imp?.sourceFile;
+        const exportedName = imp?.importedName ?? targetName;
+
+        const targetKey = mountSourceFile
+          ? `${mountSourceFile}#${exportedName}`
+          : `${file.filePath}#${targetName}`;
+
+        // Add mount info to the SOURCE router (the one calling .use())
+        for (const router of routers) {
+          if (router.filePath === file.filePath && router.name === objName) {
+            router.mounts.push({
+              line: getLoc(node).line ?? 1,
+              path: mountPathArg,
+              middleware: [],
+              routerKey: targetKey,
+            });
+            break;
+          }
+        }
+
+        // Also create a proxy entry so the target router is discoverable
+        // (if it hasn't been added already from its own file parsing)
+        const alreadyExists = routers.some(
+          (r) =>
+            r.filePath === (mountSourceFile ?? file.filePath) &&
+            r.name === exportedName,
+        );
+        if (!alreadyExists) {
           routers.push({
-            key: mountSourceFile
-              ? `${mountSourceFile}#${mountMiddleware}`
-              : `${file.filePath}#${mountMiddleware}`,
+            key: targetKey,
             filePath: mountSourceFile ?? file.filePath,
-            name: mountMiddleware,
+            name: exportedName,
             kind: "router",
             routes: [],
             mounts: [],
@@ -392,7 +417,7 @@ function parseRoutersAst(
     for (let ln = 0; ln < fileLines.length; ln++) {
       const trimmed = fileLines[ln].trim();
       // Match: routerName.route("path") or routerName.route('path')
-      const pathMatch = trimmed.match(new RegExp("^" + escapeRx(router.name) + "\\.route\\s*\\(\\s*(['\"`])([^'\"`\\s]+)\\1"));
+      const pathMatch = trimmed.match(new RegExp("^" + escapeRx(router.name) + "\\.route\\s*\\(\\s*([\\x27\\x22\\x60])([^\\x27\\x22\\x60\\s]+)\\1"));
       if (!pathMatch) continue;
       const routePath = pathMatch[2];
 
@@ -468,6 +493,7 @@ function parseRoutersAst(
     }
   }
 
+  return routers;
 }
 
 interface ChainedCallResult {
