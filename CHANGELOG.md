@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.4.4
+
+_Released: 2026-04-07_
+
+- Strengthen the experimental Express AST scanner by reusing the mature regex-based handler inference path
+- Add Express AST demo snapshot coverage plus pipeline regression coverage for `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`
+- Fix relative-root file traversal so Express scanning behaves consistently for relative and absolute project roots
+- Support middleware array flattening for Express route and mount auth inference across both the default and AST scanners
+
 ## v0.4.3
 
 _Released: 2026-04-07_
