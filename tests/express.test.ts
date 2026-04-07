@@ -157,4 +157,21 @@ describe("Express adapter", () => {
       operationId: "listAdminUsers",
     }));
   });
+
+  it("flattens middleware arrays for auth inference on routes and mounts", async () => {
+    const artifacts = await generateArtifacts(
+      fixturePath("express-array-middleware"),
+      defaultConfig(),
+    );
+
+    const reports = artifacts.normalized.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/reports"
+    );
+    const adminStats = artifacts.normalized.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/admin/stats"
+    );
+
+    expect(reports?.auth.type).toBe("bearer");
+    expect(adminStats?.auth.type).toBe("bearer");
+  });
 });

@@ -10,6 +10,7 @@ import { promises as fs } from "node:fs";
 import { inferBearerAuthFromMiddleware } from "../core/auth-middleware";
 import { listFiles, toPosixPath } from "../core/fs";
 import { dedupeParameters, dedupeResponsesByStatusCode } from "../core/dedupe";
+import { splitTopLevel } from "../core/parsing";
 import type {
   BrunogenConfig,
   GenerationWarning,
@@ -381,10 +382,7 @@ function parseRoutersAst(
 
         if (!targetKey) {
           for (const middlewareArg of remainingArgs) {
-            const middlewareName = getTargetName(middlewareArg);
-            if (middlewareName) {
-              sourceRouter.middleware.push(middlewareName);
-            }
+            sourceRouter.middleware.push(...extractMiddlewareNamesFromNode(middlewareArg));
           }
           continue;
         }
@@ -393,9 +391,9 @@ function parseRoutersAst(
         sourceRouter.mounts.push({
           line: getLoc(node).line ?? 1,
           path: mountPath,
-          middleware: middlewareArgs
-            .map((arg: any) => getTargetName(arg))
-            .filter((value: string | null): value is string => Boolean(value)),
+          middleware: middlewareArgs.flatMap((arg: any) =>
+            extractMiddlewareNamesFromNode(arg),
+          ),
           routerKey: targetKey,
         });
       }
@@ -431,15 +429,14 @@ function parseRoutersAst(
         if (methodMatch) {
           const method = methodMatch[1];
           const argsText = methodMatch[2].trim();
-          const parts = argsText.split(",").map(s => s.trim()).filter(Boolean);
+          const parts = splitTopLevel(argsText, ",").map((s) => s.trim()).filter(Boolean);
           let handler = "anonymous";
           const middleware: string[] = [];
           if (parts.length > 0) {
             const hMatch = parts[parts.length - 1].match(/([a-zA-Z_$]\w*)/);
             if (hMatch) handler = hMatch[1];
             for (let i = 0; i < parts.length - 1; i++) {
-              const mMatch = parts[i].match(/([a-zA-Z_$]\w*)/);
-              if (mMatch) middleware.push(mMatch[1]);
+              middleware.push(...extractMiddlewareNamesFromText(parts[i]));
             }
           }
           router.routes.push({
@@ -474,8 +471,7 @@ function parseRoutersAst(
 
         const middleware = args
           .slice(1, -1)
-          .map((arg: any) => getTargetName(arg))
-          .filter((value: string | null): value is string => Boolean(value));
+          .flatMap((arg: any) => extractMiddlewareNamesFromNode(arg));
 
         router.routes.push({
           filePath: file.filePath,
@@ -774,6 +770,40 @@ function getAccessPath(node: any): { base: string; property: string } | null {
     if (base && prop) return { base, property: prop };
   }
   return null;
+}
+
+function extractMiddlewareNamesFromNode(node: any): string[] {
+  if (!node) {
+    return [];
+  }
+
+  if (node.type === "ArrayExpression") {
+    return (node.elements ?? []).flatMap((element: any) =>
+      extractMiddlewareNamesFromNode(element),
+    );
+  }
+
+  if (node.type === "SpreadElement") {
+    return extractMiddlewareNamesFromNode(node.argument);
+  }
+
+  const name = getTargetName(node);
+  return name ? [name] : [];
+}
+
+function extractMiddlewareNamesFromText(expression: string): string[] {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return splitTopLevel(trimmed.slice(1, -1), ",")
+      .flatMap(extractMiddlewareNamesFromText);
+  }
+
+  const match = trimmed.match(/([a-zA-Z_$]\w*)/);
+  return match?.[1] ? [match[1]] : [];
 }
 
 function inferTag(path: string): string {

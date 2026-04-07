@@ -661,10 +661,7 @@ function parseRoutesForReceiver(
         line: call.line,
         method,
         path: rawPath,
-        middleware: args
-          .slice(1, -1)
-          .map((value) => value.trim())
-          .filter(Boolean),
+        middleware: expandMiddlewareExpressions(args.slice(1, -1)),
         handler,
       });
     }
@@ -688,16 +685,31 @@ function parseRoutesForReceiver(
         line: routeCall.line,
         method: chainedCall.method,
         path: routePath,
-        middleware: args
-          .slice(0, -1)
-          .map((value) => value.trim())
-          .filter(Boolean),
+        middleware: expandMiddlewareExpressions(args.slice(0, -1)),
         handler,
       });
     }
   }
 
   return routes;
+}
+
+function expandMiddlewareExpressions(expressions: string[]): string[] {
+  return expressions.flatMap(expandMiddlewareExpression);
+}
+
+function expandMiddlewareExpression(expression: string): string[] {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return [];
+  }
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return splitTopLevel(trimmed.slice(1, -1), ",")
+      .flatMap(expandMiddlewareExpression);
+  }
+
+  return [trimmed];
 }
 
 function parseUseCalls(
@@ -833,16 +845,18 @@ function parseUseCallArguments(
   const routerKeys: string[] = [];
 
   for (const expression of args.slice(offset)) {
-    const routerKey = resolveRouterExpression(
-      filePath,
-      expression,
-      index,
-      localRouterNames,
-    );
-    if (routerKey) {
-      routerKeys.push(routerKey);
-    } else {
-      middleware.push(expression);
+    for (const flattenedExpression of expandMiddlewareExpression(expression)) {
+      const routerKey = resolveRouterExpression(
+        filePath,
+        flattenedExpression,
+        index,
+        localRouterNames,
+      );
+      if (routerKey) {
+        routerKeys.push(routerKey);
+      } else {
+        middleware.push(flattenedExpression);
+      }
     }
   }
 

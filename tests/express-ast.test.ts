@@ -128,4 +128,23 @@ describe("Express AST adapter", () => {
 
     expect(summarize(relativeProject)).toEqual(summarize(absoluteProject));
   });
+
+  it("flattens middleware arrays for auth inference on routes and mounts", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-array-middleware"),
+      "acme/express-array-middleware",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    const reports = project.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/reports"
+    );
+    const adminStats = project.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/admin/stats"
+    );
+
+    expect(reports?.auth.type).toBe("bearer");
+    expect(adminStats?.auth.type).toBe("bearer");
+  });
 });
