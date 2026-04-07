@@ -1,4 +1,4 @@
-import { findTopLevelTerminator } from "../../core/parsing";
+import { extractBalanced, findTopLevelTerminator } from "../../core/parsing";
 import { defaultStatusForMethod } from "../../core/responses";
 import type {
   GenerationWarning,
@@ -49,6 +49,81 @@ export function extractReturnArray(methodBody: string): string | null {
   return startIndex >= 0
     ? extractBalancedBracket(methodBody, startIndex)
     : null;
+}
+
+export function extractReturnStatements(methodBody: string): string[] {
+  const statements: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const statementEnd = findTopLevelTerminator(methodBody, returnIndex, [";"]);
+    if (statementEnd < 0) {
+      break;
+    }
+
+    statements.push(methodBody.slice(returnIndex, statementEnd + 1).trim());
+    offset = statementEnd + 1;
+  }
+
+  return statements;
+}
+
+export function extractDirectReturnArrays(methodBody: string): string[] {
+  const results: string[] = [];
+  let offset = 0;
+
+  while (offset < methodBody.length) {
+    const returnIndex = methodBody.indexOf("return [", offset);
+    if (returnIndex < 0) {
+      break;
+    }
+
+    const openBracketIndex = methodBody.indexOf("[", returnIndex);
+    const arrayBlock =
+      openBracketIndex >= 0
+        ? extractBalancedBracket(methodBody, openBracketIndex)
+        : null;
+    if (!arrayBlock) {
+      break;
+    }
+
+    results.push(arrayBlock);
+    offset = openBracketIndex + arrayBlock.length;
+  }
+
+  return results;
+}
+
+export function findPhpMethod(
+  content: string,
+  methodName: string,
+): { params: string[]; body: string } | undefined {
+  const methodMatch = new RegExp(
+    `function\\s+${methodName}\\s*\\(([^)]*)\\)`,
+    "m",
+  ).exec(content);
+  if (!methodMatch) {
+    return undefined;
+  }
+
+  const bodyStartIndex = content.indexOf("{", methodMatch.index);
+  const body =
+    bodyStartIndex >= 0
+      ? extractBalanced(content, bodyStartIndex, "{", "}")
+      : null;
+  if (!body) {
+    return undefined;
+  }
+
+  return {
+    params: extractPhpParamNames(methodMatch[1] ?? ""),
+    body,
+  };
 }
 
 export function mergeGroupContexts(contexts: GroupContext[]): GroupContext {
@@ -265,6 +340,13 @@ export function camelCase(input: string): string {
 
 export function capitalize(input: string): string {
   return input ? `${input[0].toUpperCase()}${input.slice(1)}` : input;
+}
+
+function extractPhpParamNames(params: string): string[] {
+  return params
+    .split(",")
+    .map((param) => param.trim().match(/\$([A-Za-z_][A-Za-z0-9_]*)/)?.[1])
+    .filter((value): value is string => Boolean(value));
 }
 
 function isCompleteLaravelRouteStatement(statement: string): boolean {

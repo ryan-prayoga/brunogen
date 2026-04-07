@@ -1,12 +1,10 @@
-import { promises as fs } from "node:fs";
-
 import { dedupeResponsesByStatusCode } from "../../core/dedupe";
 import {
   extractBalanced,
   findTopLevelTerminator,
   splitTopLevel,
 } from "../../core/parsing";
-import type { NormalizedResponse, SchemaObject } from "../../core/model";
+import type { NormalizedResponse } from "../../core/model";
 import {
   createPhpExampleContext,
   inferSchemaFromExample,
@@ -14,12 +12,13 @@ import {
   type PhpExampleContext,
 } from "./examples";
 import {
-  type LaravelResourceSchema,
   type PhpClassRecord,
-  extractReturnArray,
+  extractDirectReturnArrays,
+  extractReturnStatements,
+  findPhpMethod,
   parsePhpString,
-  shortPhpClassName,
 } from "./shared";
+import { extractLaravelResourceResponses } from "./resources";
 
 export async function extractLaravelResponses(
   methodBody: string,
@@ -192,222 +191,6 @@ function extractLaravelExceptionResponses(
   }
 
   return [...responses.values()];
-}
-
-async function extractLaravelResourceResponses(
-  methodBody: string,
-  classIndex: Map<string, PhpClassRecord>,
-  exampleContext: PhpExampleContext,
-): Promise<NormalizedResponse[]> {
-  const responses: NormalizedResponse[] = [];
-  const returnStatements = extractReturnStatements(methodBody);
-
-  for (const statement of returnStatements) {
-    const parsedResourceReturn = parseLaravelResourceReturnStatement(
-      statement,
-      exampleContext,
-    );
-    if (!parsedResourceReturn) {
-      continue;
-    }
-
-    const resourceResponse = await buildLaravelResourceResponse(
-      parsedResourceReturn.resourceType,
-      parsedResourceReturn.mode,
-      classIndex,
-      parsedResourceReturn.additional,
-    );
-    if (resourceResponse) {
-      responses.push(resourceResponse);
-    }
-  }
-
-  return dedupeResponsesByStatusCode(responses);
-}
-
-async function buildLaravelResourceResponse(
-  resourceType: string,
-  mode: "single" | "collection",
-  classIndex: Map<string, PhpClassRecord>,
-  additional?: unknown,
-): Promise<NormalizedResponse | undefined> {
-  const resourceSchema = await parseLaravelResourceSchema(
-    resourceType,
-    classIndex,
-  );
-  if (!resourceSchema) {
-    return undefined;
-  }
-
-  const additionalProperties =
-    additional && typeof additional === "object" && !Array.isArray(additional)
-      ? (additional as Record<string, unknown>)
-      : undefined;
-  const additionalSchema = additionalProperties
-    ? inferSchemaFromExample(additionalProperties)
-    : undefined;
-  const wrappedSchema: SchemaObject =
-    mode === "collection"
-      ? {
-          type: "object",
-          properties: {
-            data: {
-              type: "array",
-              items: resourceSchema.schema,
-            },
-            ...(additionalSchema?.properties ?? {}),
-          },
-        }
-      : {
-          type: "object",
-          properties: {
-            data: resourceSchema.schema,
-            ...(additionalSchema?.properties ?? {}),
-          },
-        };
-  const wrappedExample =
-    mode === "collection"
-      ? { data: [resourceSchema.example], ...(additionalProperties ?? {}) }
-      : { data: resourceSchema.example, ...(additionalProperties ?? {}) };
-
-  return {
-    statusCode: "200",
-    description: "Inferred Laravel resource response",
-    contentType: "application/json",
-    schema: wrappedSchema,
-    example: wrappedExample,
-  };
-}
-
-async function parseLaravelResourceSchema(
-  resourceType: string,
-  classIndex: Map<string, PhpClassRecord>,
-): Promise<LaravelResourceSchema | undefined> {
-  const resourceRecord = classIndex.get(shortPhpClassName(resourceType));
-  if (!resourceRecord) {
-    return undefined;
-  }
-
-  const content = await fs.readFile(resourceRecord.filePath, "utf8");
-  const methodMatch = /function\s+toArray\s*\(([^)]*)\)/m.exec(content);
-  if (!methodMatch) {
-    return undefined;
-  }
-
-  const bodyStartIndex = content.indexOf("{", methodMatch.index);
-  const body =
-    bodyStartIndex >= 0
-      ? extractBalanced(content, bodyStartIndex, "{", "}")
-      : null;
-  if (!body) {
-    return undefined;
-  }
-
-  const arrayLiteral =
-    extractDirectReturnArrays(body)[0] ?? extractReturnArray(body);
-  if (!arrayLiteral) {
-    return undefined;
-  }
-
-  const example = parsePhpExampleValue(
-    arrayLiteral,
-    createPhpExampleContext(body),
-  );
-  return {
-    schema: inferSchemaFromExample(example),
-    example,
-  };
-}
-
-function parseLaravelResourceReturnStatement(
-  statement: string,
-  exampleContext: PhpExampleContext,
-):
-  | {
-      resourceType: string;
-      mode: "single" | "collection";
-      additional?: unknown;
-    }
-  | undefined {
-  const newResourceMatch = statement.match(
-    /^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/,
-  );
-  if (newResourceMatch?.[1]) {
-    return {
-      resourceType: newResourceMatch[1],
-      mode: "single",
-      additional: extractLaravelResourceAdditional(statement, exampleContext),
-    };
-  }
-
-  const factoryMatch = statement.match(
-    /^return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/,
-  );
-  if (factoryMatch?.[1] && factoryMatch[2]) {
-    return {
-      resourceType: factoryMatch[1],
-      mode: factoryMatch[2] === "collection" ? "collection" : "single",
-      additional: extractLaravelResourceAdditional(statement, exampleContext),
-    };
-  }
-
-  return undefined;
-}
-
-function extractLaravelResourceAdditional(
-  statement: string,
-  exampleContext: PhpExampleContext,
-): unknown | undefined {
-  const additionalIndex = statement.indexOf("->additional(");
-  if (additionalIndex < 0) {
-    return undefined;
-  }
-
-  const openParenIndex = statement.indexOf(
-    "(",
-    additionalIndex + "->additional".length,
-  );
-  const argsBlock =
-    openParenIndex >= 0
-      ? extractBalanced(statement, openParenIndex, "(", ")")
-      : null;
-  if (!argsBlock) {
-    return undefined;
-  }
-
-  const firstArg = splitTopLevel(argsBlock.slice(1, -1), ",")[0]?.trim();
-  if (!firstArg) {
-    return undefined;
-  }
-
-  const additional = parsePhpExampleValue(firstArg, exampleContext);
-  return additional &&
-    typeof additional === "object" &&
-    !Array.isArray(additional)
-    ? additional
-    : undefined;
-}
-
-function extractReturnStatements(methodBody: string): string[] {
-  const statements: string[] = [];
-  let offset = 0;
-
-  while (offset < methodBody.length) {
-    const returnIndex = methodBody.indexOf("return", offset);
-    if (returnIndex < 0) {
-      break;
-    }
-
-    const statementEnd = findTopLevelTerminator(methodBody, returnIndex, [";"]);
-    if (statementEnd < 0) {
-      break;
-    }
-
-    statements.push(methodBody.slice(returnIndex, statementEnd + 1).trim());
-    offset = statementEnd + 1;
-  }
-
-  return statements;
 }
 
 function extractReturnResponseJsonCalls(methodBody: string): string[] {
@@ -591,40 +374,6 @@ function parseLaravelHelperReturnStatement(
   };
 }
 
-function findPhpMethod(
-  content: string,
-  methodName: string,
-): { params: string[]; body: string } | undefined {
-  const methodMatch = new RegExp(
-    `function\\s+${methodName}\\s*\\(([^)]*)\\)`,
-    "m",
-  ).exec(content);
-  if (!methodMatch) {
-    return undefined;
-  }
-
-  const bodyStartIndex = content.indexOf("{", methodMatch.index);
-  const body =
-    bodyStartIndex >= 0
-      ? extractBalanced(content, bodyStartIndex, "{", "}")
-      : null;
-  if (!body) {
-    return undefined;
-  }
-
-  return {
-    params: extractPhpParamNames(methodMatch[1] ?? ""),
-    body,
-  };
-}
-
-function extractPhpParamNames(params: string): string[] {
-  return params
-    .split(",")
-    .map((param) => param.trim().match(/\$([A-Za-z_][A-Za-z0-9_]*)/)?.[1])
-    .filter((value): value is string => Boolean(value));
-}
-
 function hasLaravelNotFoundPattern(methodBody: string): boolean {
   return /\b(?:findOrFail|firstOrFail)\s*\(/.test(methodBody);
 }
@@ -656,32 +405,6 @@ function extractReturnResponseNoContentCalls(methodBody: string): string[] {
 
     results.push(argsBlock);
     offset = openParenIndex + argsBlock.length;
-  }
-
-  return results;
-}
-
-function extractDirectReturnArrays(methodBody: string): string[] {
-  const results: string[] = [];
-  let offset = 0;
-
-  while (offset < methodBody.length) {
-    const returnIndex = methodBody.indexOf("return [", offset);
-    if (returnIndex < 0) {
-      break;
-    }
-
-    const openBracketIndex = methodBody.indexOf("[", returnIndex);
-    const arrayBlock =
-      openBracketIndex >= 0
-        ? extractBalanced(methodBody, openBracketIndex, "[", "]")
-        : null;
-    if (!arrayBlock) {
-      break;
-    }
-
-    results.push(arrayBlock);
-    offset = openBracketIndex + arrayBlock.length;
   }
 
   return results;
