@@ -95,7 +95,7 @@ interface JsExampleContext {
   resolving: Set<string>;
 }
 
-interface ProjectIndex {
+export interface ExpressProjectIndex {
   files: Map<string, ExpressFile>;
   imports: Map<string, Map<string, ImportBinding>>;
   exports: Map<string, FileExports>;
@@ -128,38 +128,10 @@ export async function scanExpressProject(
   projectVersion: string,
   config: BrunogenConfig,
 ): Promise<NormalizedProject> {
-  const files = await loadExpressFiles(root);
-  const fileMap = new Map(files.map((file) => [file.filePath, file]));
-  const filePaths = new Set(fileMap.keys());
-  const imports = new Map<string, Map<string, ImportBinding>>();
-  const exports = new Map<string, FileExports>();
-  const functions = new Map<string, ExpressFunctionRecord>();
-  const routers = new Map<string, RouterRecord>();
-
-  for (const file of files) {
-    imports.set(file.filePath, parseImports(file, filePaths));
-    exports.set(file.filePath, parseExports(file));
-    for (const record of parseFunctions(file)) {
-      functions.set(createFunctionKey(file.filePath, record.name), record);
-    }
-  }
-
-  const index: ProjectIndex = {
-    files: fileMap,
-    imports,
-    exports,
-    functions,
-    routers,
-  };
-
-  for (const file of files) {
-    for (const router of parseRouters(file, index)) {
-      routers.set(router.key, router);
-    }
-  }
+  const index = await buildExpressProjectIndex(root);
 
   const incomingRouters = new Set<string>();
-  for (const router of routers.values()) {
+  for (const router of index.routers.values()) {
     for (const mount of router.mounts) {
       incomingRouters.add(mount.routerKey);
     }
@@ -168,7 +140,7 @@ export async function scanExpressProject(
   const endpoints: NormalizedEndpoint[] = [];
   const warnings: GenerationWarning[] = [];
   const seenEndpoints = new Set<string>();
-  const roots = [...routers.values()].filter(
+  const roots = [...index.routers.values()].filter(
     (router) => router.kind === "app" || !incomingRouters.has(router.key),
   );
 
@@ -193,6 +165,42 @@ export async function scanExpressProject(
     endpoints,
     warnings,
   };
+}
+
+export async function buildExpressProjectIndex(
+  root: string,
+): Promise<ExpressProjectIndex> {
+  const files = await loadExpressFiles(root);
+  const fileMap = new Map(files.map((file) => [file.filePath, file]));
+  const filePaths = new Set(fileMap.keys());
+  const imports = new Map<string, Map<string, ImportBinding>>();
+  const exports = new Map<string, FileExports>();
+  const functions = new Map<string, ExpressFunctionRecord>();
+  const routers = new Map<string, RouterRecord>();
+
+  for (const file of files) {
+    imports.set(file.filePath, parseImports(file, filePaths));
+    exports.set(file.filePath, parseExports(file));
+    for (const record of parseFunctions(file)) {
+      functions.set(createFunctionKey(file.filePath, record.name), record);
+    }
+  }
+
+  const index: ExpressProjectIndex = {
+    files: fileMap,
+    imports,
+    exports,
+    functions,
+    routers,
+  };
+
+  for (const file of files) {
+    for (const router of parseRouters(file, index)) {
+      routers.set(router.key, router);
+    }
+  }
+
+  return index;
 }
 
 async function loadExpressFiles(root: string): Promise<ExpressFile[]> {
@@ -568,7 +576,10 @@ function parseFunctions(file: ExpressFile): ExpressFunctionRecord[] {
   return records;
 }
 
-function parseRouters(file: ExpressFile, index: ProjectIndex): RouterRecord[] {
+function parseRouters(
+  file: ExpressFile,
+  index: ExpressProjectIndex,
+): RouterRecord[] {
   const routerKinds = new Map<string, "app" | "router">();
   const routers: RouterRecord[] = [];
 
@@ -799,7 +810,7 @@ function findRouteChainCalls(
 function parseUseCallArguments(
   argsBlock: string,
   filePath: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
   localRouterNames: Set<string>,
 ): {
   path: string;
@@ -844,7 +855,7 @@ function parseUseCallArguments(
 
 function collectRouterEndpoints(input: {
   router: RouterRecord;
-  index: ProjectIndex;
+  index: ExpressProjectIndex;
   config: BrunogenConfig;
   prefix: string;
   inheritedMiddleware: string[];
@@ -958,10 +969,10 @@ function collectRouterEndpoints(input: {
   }
 }
 
-function analyzeExpressHandler(
+export function analyzeExpressHandler(
   handlerExpression: string,
   filePath: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
 ): HandlerAnalysis {
   const inlineHandler = parseInlineHandler(handlerExpression);
   const handlerRecord = inlineHandler
@@ -1088,7 +1099,7 @@ function inferJoiFieldsForHandler(
   handlerRecord: ExpressFunctionRecord,
   reqName: string,
   target: "body" | "query",
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
 ): JoiFieldAnalysis[] {
   const file = index.files.get(handlerRecord.filePath);
   if (!file) {
@@ -1436,7 +1447,7 @@ function parseInlineHandler(expression: string): ExpressFunctionRecord | null {
 function resolveHandlerReference(
   expression: string,
   filePath: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
 ): ExpressFunctionRecord | null {
   const trimmed = expression.trim().replace(/^await\s+/, "");
 
@@ -1480,7 +1491,7 @@ function resolveHandlerReference(
 function resolveImportedIdentifier(
   filePath: string,
   identifier: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
 ): ExpressFunctionRecord | null {
   const binding = index.imports.get(filePath)?.get(identifier);
   if (!binding) {
@@ -1514,7 +1525,7 @@ function resolveImportedMember(
   filePath: string,
   identifier: string,
   property: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
 ): ExpressFunctionRecord | null {
   const binding = index.imports.get(filePath)?.get(identifier);
   if (!binding) {
@@ -1542,7 +1553,7 @@ function resolveImportedMember(
 function resolveRouterExpression(
   filePath: string,
   expression: string,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
   localRouterNames: Set<string>,
 ): string | null {
   const trimmed = expression.trim();
@@ -1814,7 +1825,7 @@ function extractExpressResponses(
   handlerRecord: ExpressFunctionRecord,
   resName: string,
   exampleContext: JsExampleContext,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
   depth = 0,
 ): NormalizedResponse[] {
   const body = handlerRecord.body;
@@ -1965,7 +1976,7 @@ function extractExpressHelperResponses(
   handlerRecord: ExpressFunctionRecord,
   resName: string,
   exampleContext: JsExampleContext,
-  index: ProjectIndex,
+  index: ExpressProjectIndex,
   depth: number,
 ): NormalizedResponse[] {
   const responses: NormalizedResponse[] = [];

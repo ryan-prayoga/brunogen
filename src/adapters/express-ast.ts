@@ -21,6 +21,11 @@ import type {
   NormalizedResponse,
   SchemaObject,
 } from "../core/model";
+import {
+  analyzeExpressHandler,
+  buildExpressProjectIndex,
+  type ExpressProjectIndex,
+} from "./express";
 
 import {
   ASTRouteInfo,
@@ -373,6 +378,7 @@ function parseRoutersAst(
           file.filePath,
           routers,
           fileImports,
+          fileMap,
           exports,
         );
 
@@ -934,6 +940,7 @@ function resolveRouterReference(
   filePath: string,
   routers: RouterRecord[],
   fileImports: Map<string, ImportBinding>,
+  fileMap: Map<string, ExpressFile>,
   exportsMap: Map<string, FileExports>,
 ): string | null {
   const targetName = getTargetName(node);
@@ -957,8 +964,15 @@ function resolveRouterReference(
   const exportedName =
     importBinding.kind === "default"
       ? sourceExports?.defaultExpression
-      : importBinding.importedName ?? targetName;
+      : sourceExports?.named.get(importBinding.importedName ?? targetName) ??
+        importBinding.importedName ??
+        targetName;
   if (!exportedName) {
+    return null;
+  }
+
+  const targetFile = fileMap.get(importBinding.sourceFile);
+  if (!targetFile || !declaresRouterSymbol(targetFile, exportedName)) {
     return null;
   }
 
@@ -984,6 +998,44 @@ function resolveLocalModulePath(
     if (knownFiles.has(candidate)) return candidate;
   }
   return null;
+}
+
+function declaresRouterSymbol(file: ExpressFile, symbolName: string): boolean {
+  for (const node of walkAst(file.ast)) {
+    if (node.type !== "VariableDeclarator") {
+      continue;
+    }
+
+    if (node.id?.type !== "Identifier" || node.id.name !== symbolName) {
+      continue;
+    }
+
+    if (isExpressRouterCall(node.init)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isExpressRouterCall(node: any): boolean {
+  if (!node || node.type !== "CallExpression") {
+    return false;
+  }
+
+  const callee = node.callee;
+  if (callee?.type === "Identifier") {
+    return callee.name === "Router" || callee.name === "express";
+  }
+
+  if (callee?.type === "MemberExpression") {
+    return (
+      getTargetName(callee.object) === "express" &&
+      getPropertyName(callee.property) === "Router"
+    );
+  }
+
+  return false;
 }
 
 // ─── AST walking ───────────────────────────────────────────────
@@ -1080,12 +1132,8 @@ function inferSchemaFromDefault(value: unknown): SchemaObject {
   return { type: "string" };
 }
 
-function inferTag(path: string, controller?: string): string {
-  if (controller) {
-    return controller.replace(/Controller$/, "");
-  }
-  const parts = path.replace(/\/$/, "").split("/").filter(Boolean);
-  return parts.length > 0 ? capitalize(parts[0].replace(/[{}]/g, "")) : "Default";
+function inferTag(path: string): string {
+  return path.split("/").filter(Boolean)[0] ?? "default";
 }
 
 function capitalize(s: string): string {
@@ -1115,6 +1163,14 @@ function exampleValue(schema: SchemaObject): unknown {
 }
 
 function buildOperationId(method: string, path: string, handlerName: string): string {
+  const handlerPart = handlerName
+    .replace(/[^a-zA-Z0-9.]/g, "")
+    .replace(/\./g, "");
+
+  if (handlerPart && handlerPart !== "inlineHandler") {
+    return handlerPart;
+  }
+
   const pathSuffix = path
     .replace(/[{}]/g, "")
     .split("/")
@@ -1122,13 +1178,11 @@ function buildOperationId(method: string, path: string, handlerName: string): st
     .map((part) => part.replace(/[^a-zA-Z0-9]+/g, " "))
     .map((part) => part.split(" ").filter(Boolean).map(capitalize).join(""))
     .join("");
-  return `${handlerName}${capitalize(method)}${pathSuffix || "Root"}`;
+  return `${method}${pathSuffix || "Root"}`;
 }
 
-function buildSummary(method: string, path: string, handlerName?: string): string {
-  return handlerName
-    ? `${handlerName} — ${method.toUpperCase()} ${path}`
-    : `${method.toUpperCase()} ${path}`;
+function buildSummary(method: string, path: string): string {
+  return `${method.toUpperCase()} ${path}`;
 }
 
 function normalizePath(p: string): string {
@@ -1172,6 +1226,7 @@ export async function scanExpressProjectAst(
   const imports = new Map<string, Map<string, ImportBinding>>();
   const exportsMap = new Map<string, FileExports>();
   const functions = new Map<string, FunctionRecord>();
+  const regexIndex = await buildExpressProjectIndex(root);
 
   for (const file of files) {
     imports.set(file.filePath, parseImportsAst(file, filePaths));
@@ -1224,6 +1279,7 @@ export async function scanExpressProjectAst(
       router,
       allRouters: routerByKey,
       functions,
+      regexIndex,
       config,
       prefix: "",
       inheritedMiddleware: [],
@@ -1247,6 +1303,7 @@ interface CollectContext {
   router: RouterRecord;
   allRouters: Map<string, RouterRecord>;
   functions: Map<string, FunctionRecord>;
+  regexIndex: ExpressProjectIndex;
   config: BrunogenConfig;
   prefix: string;
   inheritedMiddleware: string[];
@@ -1270,7 +1327,11 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
     if (ctx.seenEndpoints.has(endpointKey)) continue;
     ctx.seenEndpoints.add(endpointKey);
 
-    const analysis = analyzeHandlerAst(route.handler, ctx.functions, ctx.config);
+    const analysis = analyzeExpressHandler(
+      route.handler,
+      route.filePath,
+      ctx.regexIndex,
+    );
     const authInference = inferBearerAuthFromMiddleware(
       "Express",
       [...fullMiddleware, ...route.middleware],
@@ -1293,8 +1354,8 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
       method: route.method,
       path: fullPath,
       operationId: buildOperationId(route.method, fullPath, route.handler),
-      summary: buildSummary(route.method, fullPath, route.handler),
-      tags: [inferTag(fullPath, route.handler)],
+      summary: buildSummary(route.method, fullPath),
+      tags: [inferTag(fullPath)],
       parameters,
       requestBody: analysis.requestBody,
       responses: analysis.responses.length > 0 ? analysis.responses : [{
@@ -1304,10 +1365,10 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
       }],
       auth: authInference.auth,
       source: { file: route.filePath, line: route.line },
-      warnings: analysis.warnings,
+      warnings: [...analysis.warnings, ...authInference.warnings],
     });
 
-    ctx.warnings.push(...analysis.warnings);
+    ctx.warnings.push(...analysis.warnings, ...authInference.warnings);
   }
 
   // Follow mounts
