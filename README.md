@@ -461,7 +461,7 @@ example {
     {
       "name": "local",
       "variables": {
-        "baseUrl": "http://localhost:3000",
+        "baseUrl": "http://localhost:8000",
         "authToken": ""
       }
     },
@@ -480,7 +480,10 @@ example {
     "basicPasswordVar": "password",
     "apiKeyVar": "apiKey",
     "apiKeyName": "X-API-Key",
-    "apiKeyLocation": "header"
+    "apiKeyLocation": "header",
+    "middlewarePatterns": {
+      "bearer": []
+    }
   }
 }
 ```

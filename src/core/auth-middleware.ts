@@ -3,6 +3,7 @@ import type { GenerationWarning, NormalizedAuth } from "./model";
 const builtinBearerPatterns = [
   "auth",
   "authenticate",
+  "sanctum",
   "authmiddleware",
   "requireauth",
   "isauthenticated",
@@ -40,7 +41,7 @@ export interface MiddlewareAuthInference {
 }
 
 export function inferBearerAuthFromMiddleware(
-  frameworkLabel: "Express" | "Go",
+  frameworkLabel: "Express" | "Go" | "Laravel",
   middleware: string[],
   extraBearerPatterns: string[] = [],
 ): MiddlewareAuthInference {

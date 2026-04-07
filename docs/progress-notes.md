@@ -12,7 +12,7 @@ Initial contract for `brunogen`:
   - `output.brunoDir`: generated Bruno collection directory
   - `project.name`, `project.version`, `project.serverUrl`
   - `environments[]`: generated Bruno environments with variable maps
-  - `auth`: baseline auth variable names and API key placement defaults
+  - `auth`: baseline auth variable names, API key placement defaults, and bearer middleware hint patterns
 - Normalized model contract:
   - Framework adapters emit a shared `NormalizedProject`
   - `NormalizedProject.endpoints[]` is the framework-agnostic route inventory

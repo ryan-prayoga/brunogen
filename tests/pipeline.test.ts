@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
+import { writeBrunoCollection } from "../src/core/bruno";
 import { defaultConfig } from "../src/core/config";
 import { fileExists } from "../src/core/fs";
 import { generateArtifacts, validateOpenApi, writeArtifacts } from "../src/core/pipeline";
@@ -37,5 +38,23 @@ describe("Generation pipeline", () => {
     expect(loginRequest).toContain("example {");
     expect(loginRequest).toContain("code: 201");
     expect(loginRequest).toContain("\"device_name\": \"ios-simulator\"");
+  });
+
+  it("refuses to clear a non-empty directory that is not a Bruno collection", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "brunogen-unsafe-"));
+    try {
+      const unsafeOutput = path.join(workspace, "existing-output");
+      await fs.mkdir(unsafeOutput, { recursive: true });
+      await fs.writeFile(path.join(unsafeOutput, "keep.txt"), "keep\n", "utf8");
+
+      const config = defaultConfig();
+      const artifacts = await generateArtifacts(fixturePath("laravel"), config);
+
+      await expect(
+        writeBrunoCollection(artifacts.openApi, unsafeOutput, config),
+      ).rejects.toThrow(/does not look like a Brunogen collection/);
+    } finally {
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
   });
 });

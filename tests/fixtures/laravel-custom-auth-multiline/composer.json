@@ -1,0 +1,6 @@
+{
+  "name": "example/laravel-custom-auth",
+  "require": {
+    "laravel/framework": "^12.0"
+  }
+}

@@ -67,6 +67,36 @@ describe("Doctor command", () => {
     );
   });
 
+  it("reports unknown Laravel auth middleware and configured bearer hints", async () => {
+    const result = await runDoctor(
+      fixturePath("laravel-custom-auth-multiline"),
+      defaultConfig(),
+    );
+
+    expect(result.lines).toContain("configured bearer middleware hints: none");
+    expect(result.lines).toContain("laravel auth middleware warnings: 1");
+    expect(result.lines).toContain(
+      "laravel unknown auth middleware: checkPermission",
+    );
+
+    const configured = defaultConfig();
+    configured.auth.middlewarePatterns.bearer = ["checkPermission"];
+
+    const configuredResult = await runDoctor(
+      fixturePath("laravel-custom-auth-multiline"),
+      configured,
+    );
+    expect(configuredResult.lines).toContain(
+      "configured bearer middleware hints: checkPermission",
+    );
+    expect(configuredResult.lines).toContain(
+      "laravel auth middleware warnings: 0",
+    );
+    expect(configuredResult.lines).toContain(
+      "laravel unknown auth middleware: none",
+    );
+  });
+
   it("resolves doctor paths from explicit config location", async () => {
     const sandbox = await fs.mkdtemp(
       path.join(os.tmpdir(), "brunogen-doctor-"),

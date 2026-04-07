@@ -133,7 +133,7 @@ async function scanProject(
 ): Promise<NormalizedProject> {
   switch (framework) {
     case "laravel":
-      return scanLaravelProject(root, projectName, projectVersion);
+      return scanLaravelProject(root, projectName, projectVersion, config);
     case "gin":
     case "fiber":
     case "echo":

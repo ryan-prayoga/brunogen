@@ -1,4 +1,5 @@
 import path from "node:path";
+import { promises as fs } from "node:fs";
 
 import { stringify as stringifyYaml } from "yaml";
 
@@ -63,8 +64,7 @@ export async function writeBrunoCollection(
   outputDirectory: string,
   config: BrunogenConfig,
 ): Promise<void> {
-  await removeDirectory(outputDirectory);
-  await ensureDirectory(outputDirectory);
+  await resetBrunoOutputDirectory(outputDirectory);
 
   const collectionName = extractCollectionName(openApi);
   await writeTextFile(path.join(outputDirectory, "bruno.json"), JSON.stringify({
@@ -106,6 +106,38 @@ export async function writeBrunoCollection(
       renderEnvironmentFile(environment.variables),
     );
   }
+}
+
+async function resetBrunoOutputDirectory(outputDirectory: string): Promise<void> {
+  const resolvedOutputDirectory = path.resolve(outputDirectory);
+  const rootDirectory = path.parse(resolvedOutputDirectory).root;
+
+  if (resolvedOutputDirectory === rootDirectory) {
+    throw new Error(
+      `Refusing to clear Bruno output directory at filesystem root: ${resolvedOutputDirectory}`,
+    );
+  }
+
+  try {
+    const entries = await fs.readdir(resolvedOutputDirectory, {
+      withFileTypes: true,
+    });
+    if (
+      entries.length > 0 &&
+      !entries.some((entry) => entry.isFile() && entry.name === "bruno.json")
+    ) {
+      throw new Error(
+        `Refusing to clear non-empty Bruno output directory '${resolvedOutputDirectory}' because it does not look like a Brunogen collection. Point output.brunoDir to a dedicated directory or empty it first.`,
+      );
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      throw error;
+    }
+  }
+
+  await removeDirectory(outputDirectory);
+  await ensureDirectory(outputDirectory);
 }
 
 function renderRequestFile(input: {

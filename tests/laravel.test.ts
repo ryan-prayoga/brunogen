@@ -110,4 +110,53 @@ describe("Laravel adapter", () => {
       },
     }));
   });
+
+  it("supports multi-line routes and configurable auth middleware hints for Laravel", async () => {
+    const artifacts = await generateArtifacts(
+      fixturePath("laravel-custom-auth-multiline"),
+      defaultConfig(),
+    );
+    const reports = artifacts.normalized.endpoints.find(
+      (endpoint) => endpoint.path === "/api/reports" && endpoint.method === "get",
+    );
+
+    expect(reports?.auth.type).toBe("none");
+    expect(reports?.responses).toContainEqual(
+      expect.objectContaining({
+        statusCode: "200",
+        example: {
+          data: [
+            {
+              id: 1,
+              name: "Daily report",
+            },
+          ],
+        },
+      }),
+    );
+    expect(artifacts.warnings).toContainEqual(
+      expect.objectContaining({
+        code: "LARAVEL_AUTH_MIDDLEWARE_UNKNOWN",
+        message: expect.stringContaining("checkPermission"),
+      }),
+    );
+
+    const config = defaultConfig();
+    config.auth.middlewarePatterns.bearer = ["checkPermission"];
+
+    const configuredArtifacts = await generateArtifacts(
+      fixturePath("laravel-custom-auth-multiline"),
+      config,
+    );
+    const configuredReports = configuredArtifacts.normalized.endpoints.find(
+      (endpoint) => endpoint.path === "/api/reports" && endpoint.method === "get",
+    );
+
+    expect(configuredReports?.auth.type).toBe("bearer");
+    expect(configuredArtifacts.warnings).not.toContainEqual(
+      expect.objectContaining({
+        code: "LARAVEL_AUTH_MIDDLEWARE_UNKNOWN",
+      }),
+    );
+  });
 });

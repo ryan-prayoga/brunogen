@@ -61,6 +61,10 @@ export async function runDoctor(
     lines.push(...(await collectExpressDoctorLines(projectRoot, artifacts)));
   }
 
+  if (detection.framework === "laravel") {
+    lines.push(...collectLaravelDoctorLines(artifacts));
+  }
+
   if (
     detection.framework === "gin" ||
     detection.framework === "fiber" ||
@@ -74,6 +78,24 @@ export async function runDoctor(
   }
 
   return { lines };
+}
+
+function collectLaravelDoctorLines(
+  artifacts?: Awaited<ReturnType<typeof generateArtifacts>>,
+): string[] {
+  if (!artifacts) {
+    return [];
+  }
+
+  const unknownAuthMiddleware = collectWarningSubjects(
+    artifacts.warnings,
+    "LARAVEL_AUTH_MIDDLEWARE_UNKNOWN",
+  );
+
+  return [
+    `laravel auth middleware warnings: ${unknownAuthMiddleware.length}`,
+    `laravel unknown auth middleware: ${unknownAuthMiddleware.length > 0 ? unknownAuthMiddleware.join(", ") : "none"}`,
+  ];
 }
 
 async function collectExpressDoctorLines(

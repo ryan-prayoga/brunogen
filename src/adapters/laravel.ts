@@ -1,6 +1,7 @@
 import path from "node:path";
 import { promises as fs } from "node:fs";
 
+import { inferBearerAuthFromMiddleware } from "../core/auth-middleware";
 import { listFiles } from "../core/fs";
 import { dedupeParameters, dedupeResponsesByStatusCode } from "../core/dedupe";
 import { defaultStatusForMethod } from "../core/responses";
@@ -11,6 +12,7 @@ import {
   splitTopLevelSequence,
 } from "../core/parsing";
 import type {
+  BrunogenConfig,
   GenerationWarning,
   HttpMethod,
   NormalizedAuth,
@@ -55,6 +57,7 @@ export async function scanLaravelProject(
   root: string,
   projectName: string,
   projectVersion: string,
+  config: BrunogenConfig,
 ): Promise<NormalizedProject> {
   const classIndex = await buildPhpClassIndex(root);
   const routeFiles = await listFiles(path.join(root, "routes"), (filePath) =>
@@ -72,6 +75,7 @@ export async function scanLaravelProject(
       routeFile,
       classIndex,
       controllerCache,
+      config,
     );
     endpoints.push(...routeParse.endpoints);
     warnings.push(...routeParse.warnings);
@@ -119,6 +123,7 @@ async function parseRoutesFromFile(
   filePath: string,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
+  config: BrunogenConfig,
 ): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] }> {
   const lines = content.split(/\r?\n/);
   const endpoints: NormalizedEndpoint[] = [];
@@ -127,7 +132,8 @@ async function parseRoutesFromFile(
 
   let braceDepth = 0;
 
-  for (const [index, rawLine] of lines.entries()) {
+  for (let index = 0; index < lines.length; index += 1) {
+    const rawLine = lines[index];
     const line = rawLine.trim();
 
     if (!line || !line.includes("Route::")) {
@@ -141,51 +147,57 @@ async function parseRoutesFromFile(
       continue;
     }
 
+    const statement = collectLaravelRouteStatement(lines, index);
     const currentContext = mergeGroupContexts(
       groupStack.map((entry) => entry.context),
     );
 
-    if (line.includes("->group(function")) {
+    if (statement.value.includes("->group(function")) {
       groupStack.push({
-        context: parseGroupContext(line),
+        context: parseGroupContext(statement.value),
         depth: braceDepth + 1,
       });
-      braceDepth += countBraceDelta(rawLine);
+      braceDepth += statement.braceDelta;
+      index = statement.lastLine;
       continue;
     }
 
     if (
-      line.includes("Route::apiResource(") ||
-      line.includes("Route::resource(")
+      statement.value.includes("Route::apiResource(") ||
+      statement.value.includes("Route::resource(")
     ) {
       const resourceRoutes = await parseResourceRoute(
-        line,
+        statement.value,
         currentContext,
         filePath,
         index + 1,
         classIndex,
         controllerCache,
+        config,
       );
       endpoints.push(...resourceRoutes.endpoints);
       warnings.push(...resourceRoutes.warnings);
-      braceDepth += countBraceDelta(rawLine);
+      braceDepth += statement.braceDelta;
+      index = statement.lastLine;
       continue;
     }
 
     const parsedRoute = await parseConcreteRoute(
-      line,
+      statement.value,
       currentContext,
       filePath,
       index + 1,
       classIndex,
       controllerCache,
+      config,
     );
     if (parsedRoute.endpoint) {
       endpoints.push(parsedRoute.endpoint);
     }
     warnings.push(...parsedRoute.warnings);
 
-    braceDepth += countBraceDelta(rawLine);
+    braceDepth += statement.braceDelta;
+    index = statement.lastLine;
     while (
       groupStack.length &&
       braceDepth < groupStack[groupStack.length - 1].depth
@@ -229,9 +241,10 @@ async function parseConcreteRoute(
   lineNumber: number,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
+  config: BrunogenConfig,
 ): Promise<{ endpoint?: NormalizedEndpoint; warnings: GenerationWarning[] }> {
   const routeMatch = statement.match(
-    /Route::(get|post|put|patch|delete|head|options)\s*\(\s*(['"])(.*?)\2\s*,\s*(.+?)\)\s*(.*);?$/,
+    /Route::(get|post|put|patch|delete|head|options)\s*\(\s*(['"])(.*?)\2\s*,\s*([\s\S]+?)\)\s*([\s\S]*);?$/,
   );
 
   if (!routeMatch) {
@@ -261,7 +274,15 @@ async function parseConcreteRoute(
   const normalizedPath = normalizeLaravelPath(
     joinRoutePath(context.prefixes, rawPath),
   );
-  const inferredAuth = inferAuthFromMiddleware(context.middleware);
+  const authInference = inferBearerAuthFromMiddleware(
+    "Laravel",
+    context.middleware,
+    config.auth.middlewarePatterns.bearer,
+  );
+  const routeWarnings = [...analysis.warnings, ...authInference.warnings.map((warning) => ({
+    ...warning,
+    location: { file: filePath, line: lineNumber },
+  }))];
   const parameters = dedupeParameters([
     ...extractPathParameters(normalizedPath),
     ...analysis.queryParameters.filter(
@@ -284,14 +305,14 @@ async function parseConcreteRoute(
         analysis.responses.length > 0
           ? analysis.responses
           : buildDefaultResponses(method),
-      auth: inferredAuth,
+      auth: authInference.auth,
       source: {
         file: filePath,
         line: lineNumber,
       },
-      warnings: analysis.warnings,
+      warnings: routeWarnings,
     },
-    warnings: analysis.warnings,
+    warnings: routeWarnings,
   };
 }
 
@@ -302,9 +323,10 @@ async function parseResourceRoute(
   lineNumber: number,
   classIndex: Map<string, PhpClassRecord>,
   controllerCache: Map<string, ControllerAnalysis>,
+  config: BrunogenConfig,
 ): Promise<{ endpoints: NormalizedEndpoint[]; warnings: GenerationWarning[] }> {
   const match = statement.match(
-    /Route::(?:apiResource|resource)\s*\(\s*(['"])(.*?)\1\s*,\s*([A-Za-z0-9_\\]+)::class\s*\)(.*);?$/,
+    /Route::(?:apiResource|resource)\s*\(\s*(['"])(.*?)\1\s*,\s*([A-Za-z0-9_\\]+)::class\s*\)([\s\S]*);?$/,
   );
 
   if (!match) {
@@ -362,6 +384,15 @@ async function parseResourceRoute(
 
   const endpoints: NormalizedEndpoint[] = [];
   const warnings: GenerationWarning[] = [];
+  const authInference = inferBearerAuthFromMiddleware(
+    "Laravel",
+    context.middleware,
+    config.auth.middlewarePatterns.bearer,
+  );
+  const authWarnings = authInference.warnings.map((warning) => ({
+    ...warning,
+    location: { file: filePath, line: lineNumber },
+  }));
 
   for (const action of actions) {
     const handler: ParsedHandler = { controller, action: action.action };
@@ -392,14 +423,14 @@ async function parseResourceRoute(
         analysis.responses.length > 0
           ? analysis.responses
           : buildDefaultResponses(action.method),
-      auth: inferAuthFromMiddleware(context.middleware),
+      auth: authInference.auth,
       source: {
         file: filePath,
         line: lineNumber,
       },
-      warnings: analysis.warnings,
+      warnings: [...analysis.warnings, ...authWarnings],
     });
-    warnings.push(...analysis.warnings);
+    warnings.push(...analysis.warnings, ...authWarnings);
   }
 
   return { endpoints, warnings };
@@ -830,15 +861,6 @@ function normalizeLaravelPath(pathname: string): string {
       .replace(/\/+/g, "/")
       .replace(/\/$/, "") || "/"
   );
-}
-
-function inferAuthFromMiddleware(middleware: string[]): NormalizedAuth {
-  const joined = middleware.join(" ");
-  if (/\bauth(?::[a-z0-9_-]+)?\b/i.test(joined) || /sanctum/i.test(joined)) {
-    return { type: "bearer" };
-  }
-
-  return { type: "none" };
 }
 
 function extractPathParameters(pathname: string) {
@@ -2353,6 +2375,34 @@ function parsePhpStringList(input: string): string[] {
 function parsePhpString(input: string): string | undefined {
   const match = input.trim().match(/^['"](.+?)['"]$/);
   return match?.[1];
+}
+
+function collectLaravelRouteStatement(
+  lines: string[],
+  startLine: number,
+): { value: string; lastLine: number; braceDelta: number } {
+  let value = lines[startLine]?.trim() ?? "";
+  let lastLine = startLine;
+  let braceDelta = countBraceDelta(lines[startLine] ?? "");
+
+  while (
+    lastLine + 1 < lines.length &&
+    !isCompleteLaravelRouteStatement(value)
+  ) {
+    lastLine += 1;
+    value = `${value}\n${lines[lastLine].trim()}`;
+    braceDelta += countBraceDelta(lines[lastLine] ?? "");
+  }
+
+  return { value, lastLine, braceDelta };
+}
+
+function isCompleteLaravelRouteStatement(statement: string): boolean {
+  if (statement.includes("->group(function")) {
+    return statement.includes("{");
+  }
+
+  return findTopLevelTerminator(statement, 0, [";"]) >= 0;
 }
 
 function shortPhpClassName(input: string): string {
