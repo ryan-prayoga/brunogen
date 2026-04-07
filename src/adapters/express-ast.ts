@@ -10,6 +10,7 @@ import { promises as fs } from "node:fs";
 import { inferBearerAuthFromMiddleware } from "../core/auth-middleware";
 import { listFiles, toPosixPath } from "../core/fs";
 import { dedupeParameters, dedupeResponsesByStatusCode } from "../core/dedupe";
+import { splitTopLevel } from "../core/parsing";
 import type {
   BrunogenConfig,
   GenerationWarning,
@@ -17,10 +18,12 @@ import type {
   NormalizedEndpoint,
   NormalizedParameter,
   NormalizedProject,
-  NormalizedRequestBody,
-  NormalizedResponse,
-  SchemaObject,
 } from "../core/model";
+import {
+  analyzeExpressHandler,
+  buildExpressProjectIndex,
+  type ExpressProjectIndex,
+} from "./express";
 
 import {
   ASTRouteInfo,
@@ -373,15 +376,13 @@ function parseRoutersAst(
           file.filePath,
           routers,
           fileImports,
+          fileMap,
           exports,
         );
 
         if (!targetKey) {
           for (const middlewareArg of remainingArgs) {
-            const middlewareName = getTargetName(middlewareArg);
-            if (middlewareName) {
-              sourceRouter.middleware.push(middlewareName);
-            }
+            sourceRouter.middleware.push(...extractMiddlewareNamesFromNode(middlewareArg));
           }
           continue;
         }
@@ -390,9 +391,9 @@ function parseRoutersAst(
         sourceRouter.mounts.push({
           line: getLoc(node).line ?? 1,
           path: mountPath,
-          middleware: middlewareArgs
-            .map((arg: any) => getTargetName(arg))
-            .filter((value: string | null): value is string => Boolean(value)),
+          middleware: middlewareArgs.flatMap((arg: any) =>
+            extractMiddlewareNamesFromNode(arg),
+          ),
           routerKey: targetKey,
         });
       }
@@ -428,15 +429,14 @@ function parseRoutersAst(
         if (methodMatch) {
           const method = methodMatch[1];
           const argsText = methodMatch[2].trim();
-          const parts = argsText.split(",").map(s => s.trim()).filter(Boolean);
+          const parts = splitTopLevel(argsText, ",").map((s) => s.trim()).filter(Boolean);
           let handler = "anonymous";
           const middleware: string[] = [];
           if (parts.length > 0) {
             const hMatch = parts[parts.length - 1].match(/([a-zA-Z_$]\w*)/);
             if (hMatch) handler = hMatch[1];
             for (let i = 0; i < parts.length - 1; i++) {
-              const mMatch = parts[i].match(/([a-zA-Z_$]\w*)/);
-              if (mMatch) middleware.push(mMatch[1]);
+              middleware.push(...extractMiddlewareNamesFromText(parts[i]));
             }
           }
           router.routes.push({
@@ -466,16 +466,12 @@ function parseRoutersAst(
       if (objName === router.name && propName && httpMethods.includes(propName as HttpMethod)) {
         const args = node.arguments ?? [];
         const routePath = args.length > 0 ? getStringValue(args[0]) ?? "/" : "/";
-        const handlerExpr = args.length > 1 ? args[1] : args[0];
+        const handlerExpr = args.at(-1);
         const handler = getTargetName(handlerExpr) ?? "anonymous";
 
-        const middleware: string[] = [];
-        if (args.length > 2) {
-          for (let i = 1; i < args.length - 1; i++) {
-            const mw = getTargetName(args[i]);
-            if (mw) middleware.push(mw);
-          }
-        }
+        const middleware = args
+          .slice(1, -1)
+          .flatMap((arg: any) => extractMiddlewareNamesFromNode(arg));
 
         router.routes.push({
           filePath: file.filePath,
@@ -492,322 +488,10 @@ function parseRoutersAst(
   return routers;
 }
 
-interface ChainedCallResult {
-  has: (method: string) => boolean;
-  get: (method: string) => any | undefined;
-}
-
-function findPropertyCalls(node: any): ChainedCallResult {
-  const chainCalls = new Map<string, any>();
-  let current: any = node;
-
-  // If the node is a CallExpression with a MemberExpression callee, follow the chain
-  while (current?.type === "CallExpression" && current.callee?.type === "MemberExpression") {
-    const prop = getPropertyName(current.callee.property);
-    if (prop && httpMethods.includes(prop as HttpMethod)) {
-      chainCalls.set(prop, current);
-    }
-    current = current.callee.object;
-  }
-
-  return {
-    has: (method: string) => chainCalls.has(method),
-    get: (method: string) => chainCalls.get(method),
-  };
-}
-
-function findChainedCallNode(node: any, method: string): any {
-  // Walk through chained calls to find the specific method call
-  let current: any = node;
-  while (current?.type === "CallExpression" && current.callee?.type === "MemberExpression") {
-    const prop = getPropertyName(current.callee.property);
-    if (prop === method) {
-      return current;
-    }
-    current = current.callee.object;
-  }
-  return null;
-}
-
-// ─── Handler analysis (AST-based) ──────────────────────────────
-
 const defaultStatusByMethod: Record<HttpMethod, string> = {
   get: "200", post: "201", put: "200", patch: "200",
   delete: "204", head: "200", options: "200",
 };
-
-interface HandlerAnalysis {
-  requestBody?: NormalizedRequestBody;
-  queryParameters: NormalizedParameter[];
-  headerParameters: NormalizedParameter[];
-  responses: NormalizedResponse[];
-  warnings: GenerationWarning[];
-}
-
-function analyzeHandlerAst(
-  handlerName: string,
-  functions: Map<string, FunctionRecord>,
-  config: BrunogenConfig,
-): HandlerAnalysis {
-  const fn = functions.get(handlerName);
-  if (!fn) {
-    return {
-      queryParameters: [],
-      headerParameters: [],
-      responses: [],
-      warnings: [{
-        code: "EXPRESS_HANDLER_NOT_FOUND",
-        message: `Handler function "${handlerName}" not found for analysis.`,
-      }],
-    };
-  }
-
-  const result: HandlerAnalysis = {
-    queryParameters: [],
-    headerParameters: [],
-    responses: [],
-    warnings: [],
-  };
-
-  // Find req parameter name from function signature
-  const reqParamName = fn.params.find((p) => p === "req") ?? "req";
-  const resParamName = fn.params.find((p) => p === "res") ?? "res";
-
-  // Parse function body AST
-  let bodyAst: any;
-  try {
-    bodyAst = parseWithEslint(
-      `async function __analyze__() { ${fn.body} }`,
-      fn.filePath,
-    );
-  } catch {
-    result.warnings.push({
-      code: "EXPRESS_HANDLER_PARSE_ERROR",
-      message: `Could not parse body of handler "${handlerName}" for deeper analysis.`,
-      location: { file: fn.filePath, line: fn.line },
-    });
-    return result;
-  }
-
-  // Find req access patterns: req.body, req.query, req.params, req.get(), req.headers
-  // Find res response patterns: res.json(), res.status().json(), res.send()
-  for (const node of walkAst(bodyAst)) {
-    // req.body → check destructuring from req.body
-    // e.g. const { name, email } = req.body
-    if (
-      node.type === "VariableDeclarator" &&
-      node.id?.type === "ObjectPattern"
-    ) {
-      const init = node.init;
-      const accessPath = getAccessPath(init);
-      if (accessPath) {
-        if (accessPath.base === reqParamName && accessPath.property === "body") {
-          for (const prop of node.id.properties ?? []) {
-            const name = getPropertyName(prop.key) ?? prop.value?.name;
-            if (!name) continue;
-
-            let defaultValue: unknown;
-            if (prop.type === "AssignmentProperty" && prop.value?.type === "Literal") {
-              defaultValue = prop.value.value;
-            }
-
-            result.requestBody = result.requestBody ?? {
-              contentType: "application/json",
-              schema: { type: "object", properties: {}, required: [] },
-            };
-            const propSchema = inferSchemaFromDefault(defaultValue);
-            result.requestBody.schema.properties![name] = propSchema;
-          }
-        }
-
-        if (accessPath.base === reqParamName && accessPath.property === "query") {
-          for (const prop of node.id.properties ?? []) {
-            const name = getPropertyName(prop.key) ?? prop.value?.name;
-            if (!name) continue;
-
-            let defaultValue: unknown;
-            if (prop.type === "AssignmentProperty" && prop.value?.type === "Literal") {
-              defaultValue = prop.value.value;
-            }
-
-            result.queryParameters.push({
-              name,
-              in: "query",
-              required: !defaultValue,
-              schema: inferSchemaFromDefault(defaultValue),
-            });
-          }
-        }
-      }
-    }
-
-    // req.query.page, req.params.id, req.get('X-Header')
-    if (
-      node.type === "MemberExpression" &&
-      getTargetName(node.object?.object) === reqParamName &&
-      node.object?.property?.name === "query"
-    ) {
-      const name = getPropertyName(node.property);
-      if (name) {
-        result.queryParameters.push({
-          name,
-          in: "query",
-          required: false,
-          schema: { type: "string" },
-        });
-      }
-    }
-
-    if (
-      node.type === "MemberExpression" &&
-      getTargetName(node.object?.object) === reqParamName &&
-      node.object?.property?.name === "params"
-    ) {
-      // Path parameters — will be deduped with route path params
-      const name = getPropertyName(node.property);
-      if (name) {
-        result.queryParameters.push({
-          name,
-          in: "path",
-          required: true,
-          schema: { type: "string" },
-        });
-      }
-    }
-
-    if (
-      node.type === "CallExpression" &&
-      node.callee?.type === "MemberExpression" &&
-      getTargetName(node.callee.object) === reqParamName &&
-      node.callee.property?.name === "get"
-    ) {
-      const headerName = getStringValue(node.arguments?.[0]);
-      if (headerName) {
-        result.headerParameters.push({
-          name: headerName,
-          in: "header",
-          required: true,
-          schema: { type: "string" },
-        });
-      }
-    }
-
-    // req.headers['x-trace-id']
-    if (
-      node.type === "MemberExpression" &&
-      getTargetName(node.object) === reqParamName &&
-      node.object?.property?.name === "headers"
-    ) {
-      const headerName = getStringValue(node.property);
-      if (headerName) {
-        result.headerParameters.push({
-          name: headerName,
-          in: "header",
-          required: true,
-          schema: { type: "string" },
-        });
-      }
-    }
-
-    // Response inference — res.json(), res.status().json(), res.send()
-    if (
-      node.type === "CallExpression"
-    ) {
-      let resObj = node.callee;
-      let statusCall: any = null;
-
-      // res.status(201).json(...)
-      if (
-        resObj.type === "MemberExpression" &&
-        resObj.property?.name === "json"
-      ) {
-        const inner = resObj.object;
-        if (
-          inner?.type === "CallExpression" &&
-          inner.callee?.type === "MemberExpression" &&
-          inner.callee.property?.name === "status" &&
-          getTargetName(inner.callee.object) === resParamName
-        ) {
-          statusCall = inner;
-          resObj = inner.callee.object;
-        } else if (getTargetName(inner) === resParamName) {
-          resObj = inner;
-        }
-      }
-
-      // res.sendStatus(204)
-      if (
-        resObj.type === "MemberExpression" &&
-        resObj.property?.name === "sendStatus" &&
-        getTargetName(resObj.object) === resParamName
-      ) {
-        const statusCode = String(node.arguments?.[0]?.value ?? "204");
-        result.responses.push({
-          statusCode,
-          description: `Response with status ${statusCode}`,
-        });
-      }
-
-      // res.send("ok")
-      if (
-        resObj.type === "MemberExpression" &&
-        resObj.property?.name === "send" &&
-        getTargetName(resObj.object) === resParamName
-      ) {
-        const arg = node.arguments?.[0];
-        const statusCode = statusCall
-          ? String(statusCall.arguments?.[0]?.value ?? "200")
-          : "200";
-        result.responses.push({
-          statusCode,
-          description: "Generated response",
-          contentType: "text/plain",
-          example: getStringValue(arg) ?? String(arg?.value ?? ""),
-        });
-      }
-
-      // res.json(...)
-      if (
-        resObj.type === "MemberExpression" &&
-        resObj.property?.name === "json" &&
-        getTargetName(resObj.object) === resParamName
-      ) {
-        const arg = node.arguments?.[0];
-        const statusCode = statusCall
-          ? String(statusCall.arguments?.[0]?.value ?? "200")
-          : "200";
-
-        let schema: SchemaObject | undefined;
-        let example: unknown;
-
-        if (arg?.type === "ObjectExpression") {
-          const props = extractObjectProperties(arg);
-          schema = { type: "object", properties: props, required: Object.keys(props) };
-          example = buildExampleFromProperties(props);
-        } else if (arg?.type === "Literal") {
-          example = arg.value;
-          schema = inferSchemaFromDefault(arg.value);
-        } else if (arg?.type === "Identifier") {
-          // Could be a variable — best effort
-          example = { message: "Response data", data: {} };
-        }
-
-        result.responses.push({
-          statusCode,
-          description: "Generated response",
-          contentType: "application/json",
-          schema,
-          example,
-        });
-      }
-    }
-  }
-
-  // Dedup responses by status code
-  result.responses = dedupeResponsesByStatusCode(result.responses);
-
-  return result;
-}
 
 // ─── Helper functions ──────────────────────────────────────────
 
@@ -934,6 +618,7 @@ function resolveRouterReference(
   filePath: string,
   routers: RouterRecord[],
   fileImports: Map<string, ImportBinding>,
+  fileMap: Map<string, ExpressFile>,
   exportsMap: Map<string, FileExports>,
 ): string | null {
   const targetName = getTargetName(node);
@@ -957,8 +642,15 @@ function resolveRouterReference(
   const exportedName =
     importBinding.kind === "default"
       ? sourceExports?.defaultExpression
-      : importBinding.importedName ?? targetName;
+      : sourceExports?.named.get(importBinding.importedName ?? targetName) ??
+        importBinding.importedName ??
+        targetName;
   if (!exportedName) {
+    return null;
+  }
+
+  const targetFile = fileMap.get(importBinding.sourceFile);
+  if (!targetFile || !declaresRouterSymbol(targetFile, exportedName)) {
     return null;
   }
 
@@ -984,6 +676,44 @@ function resolveLocalModulePath(
     if (knownFiles.has(candidate)) return candidate;
   }
   return null;
+}
+
+function declaresRouterSymbol(file: ExpressFile, symbolName: string): boolean {
+  for (const node of walkAst(file.ast)) {
+    if (node.type !== "VariableDeclarator") {
+      continue;
+    }
+
+    if (node.id?.type !== "Identifier" || node.id.name !== symbolName) {
+      continue;
+    }
+
+    if (isExpressRouterCall(node.init)) {
+      return true;
+    }
+  }
+
+  return false;
+}
+
+function isExpressRouterCall(node: any): boolean {
+  if (!node || node.type !== "CallExpression") {
+    return false;
+  }
+
+  const callee = node.callee;
+  if (callee?.type === "Identifier") {
+    return callee.name === "Router" || callee.name === "express";
+  }
+
+  if (callee?.type === "MemberExpression") {
+    return (
+      getTargetName(callee.object) === "express" &&
+      getPropertyName(callee.property) === "Router"
+    );
+  }
+
+  return false;
 }
 
 // ─── AST walking ───────────────────────────────────────────────
@@ -1042,79 +772,57 @@ function getAccessPath(node: any): { base: string; property: string } | null {
   return null;
 }
 
-function extractObjectProperties(node: any): Record<string, SchemaObject> {
-  const props: Record<string, SchemaObject> = {};
-  for (const prop of node.properties ?? []) {
-    const name = getPropertyName(prop.key);
-    if (!name) continue;
-    const value = prop.value;
-    props[name] = inferSchemaFromValue(value);
+function extractMiddlewareNamesFromNode(node: any): string[] {
+  if (!node) {
+    return [];
   }
-  return props;
-}
 
-function inferSchemaFromValue(node: any): SchemaObject {
-  if (!node) return { type: "string" };
-  if (node.type === "Literal") return inferSchemaFromDefault(node.value);
-  if (node.type === "ObjectExpression") {
-    return { type: "object", properties: extractObjectProperties(node) };
-  }
   if (node.type === "ArrayExpression") {
-    return {
-      type: "array",
-      items: node.elements[0] ? inferSchemaFromValue(node.elements[0]) : { type: "object" },
-    };
+    return (node.elements ?? []).flatMap((element: any) =>
+      extractMiddlewareNamesFromNode(element),
+    );
   }
-  return { type: "string" };
+
+  if (node.type === "SpreadElement") {
+    return extractMiddlewareNamesFromNode(node.argument);
+  }
+
+  const name = getTargetName(node);
+  return name ? [name] : [];
 }
 
-function inferSchemaFromDefault(value: unknown): SchemaObject {
-  if (value === null || value === undefined) return { type: "string", nullable: true };
-  if (typeof value === "string") return { type: "string" };
-  if (typeof value === "number") {
-    const rounded = Math.round(value);
-    return value === rounded ? { type: "integer" } : { type: "number" };
+function extractMiddlewareNamesFromText(expression: string): string[] {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return [];
   }
-  if (typeof value === "boolean") return { type: "boolean" };
-  if (typeof value === "object") return { type: "object" };
-  return { type: "string" };
+
+  if (trimmed.startsWith("[") && trimmed.endsWith("]")) {
+    return splitTopLevel(trimmed.slice(1, -1), ",")
+      .flatMap(extractMiddlewareNamesFromText);
+  }
+
+  const match = trimmed.match(/([a-zA-Z_$]\w*)/);
+  return match?.[1] ? [match[1]] : [];
 }
 
-function inferTag(path: string, controller?: string): string {
-  if (controller) {
-    return controller.replace(/Controller$/, "");
-  }
-  const parts = path.replace(/\/$/, "").split("/").filter(Boolean);
-  return parts.length > 0 ? capitalize(parts[0].replace(/[{}]/g, "")) : "Default";
+function inferTag(path: string): string {
+  return path.split("/").filter(Boolean)[0] ?? "default";
 }
 
 function capitalize(s: string): string {
   return s ? `${s[0].toUpperCase()}${s.slice(1)}` : s;
 }
 
-function buildExampleFromProperties(
-  props: Record<string, SchemaObject>,
-): Record<string, unknown> {
-  const example: Record<string, unknown> = {};
-  for (const [key, schema] of Object.entries(props)) {
-    example[key] = exampleValue(schema);
-  }
-  return example;
-}
-
-function exampleValue(schema: SchemaObject): unknown {
-  switch (schema.type) {
-    case "string": return "example";
-    case "integer": return 1;
-    case "number": return 1.0;
-    case "boolean": return true;
-    case "array": return schema.items ? [exampleValue(schema.items)] : [];
-    case "object": return schema.properties ? buildExampleFromProperties(schema.properties) : {};
-    default: return "example";
-  }
-}
-
 function buildOperationId(method: string, path: string, handlerName: string): string {
+  const handlerPart = handlerName
+    .replace(/[^a-zA-Z0-9.]/g, "")
+    .replace(/\./g, "");
+
+  if (handlerPart && handlerPart !== "inlineHandler") {
+    return handlerPart;
+  }
+
   const pathSuffix = path
     .replace(/[{}]/g, "")
     .split("/")
@@ -1122,13 +830,11 @@ function buildOperationId(method: string, path: string, handlerName: string): st
     .map((part) => part.replace(/[^a-zA-Z0-9]+/g, " "))
     .map((part) => part.split(" ").filter(Boolean).map(capitalize).join(""))
     .join("");
-  return `${handlerName}${capitalize(method)}${pathSuffix || "Root"}`;
+  return `${method}${pathSuffix || "Root"}`;
 }
 
-function buildSummary(method: string, path: string, handlerName?: string): string {
-  return handlerName
-    ? `${handlerName} — ${method.toUpperCase()} ${path}`
-    : `${method.toUpperCase()} ${path}`;
+function buildSummary(method: string, path: string): string {
+  return `${method.toUpperCase()} ${path}`;
 }
 
 function normalizePath(p: string): string {
@@ -1172,6 +878,7 @@ export async function scanExpressProjectAst(
   const imports = new Map<string, Map<string, ImportBinding>>();
   const exportsMap = new Map<string, FileExports>();
   const functions = new Map<string, FunctionRecord>();
+  const regexIndex = await buildExpressProjectIndex(root);
 
   for (const file of files) {
     imports.set(file.filePath, parseImportsAst(file, filePaths));
@@ -1224,6 +931,7 @@ export async function scanExpressProjectAst(
       router,
       allRouters: routerByKey,
       functions,
+      regexIndex,
       config,
       prefix: "",
       inheritedMiddleware: [],
@@ -1247,6 +955,7 @@ interface CollectContext {
   router: RouterRecord;
   allRouters: Map<string, RouterRecord>;
   functions: Map<string, FunctionRecord>;
+  regexIndex: ExpressProjectIndex;
   config: BrunogenConfig;
   prefix: string;
   inheritedMiddleware: string[];
@@ -1270,7 +979,11 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
     if (ctx.seenEndpoints.has(endpointKey)) continue;
     ctx.seenEndpoints.add(endpointKey);
 
-    const analysis = analyzeHandlerAst(route.handler, ctx.functions, ctx.config);
+    const analysis = analyzeExpressHandler(
+      route.handler,
+      route.filePath,
+      ctx.regexIndex,
+    );
     const authInference = inferBearerAuthFromMiddleware(
       "Express",
       [...fullMiddleware, ...route.middleware],
@@ -1293,8 +1006,8 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
       method: route.method,
       path: fullPath,
       operationId: buildOperationId(route.method, fullPath, route.handler),
-      summary: buildSummary(route.method, fullPath, route.handler),
-      tags: [inferTag(fullPath, route.handler)],
+      summary: buildSummary(route.method, fullPath),
+      tags: [inferTag(fullPath)],
       parameters,
       requestBody: analysis.requestBody,
       responses: analysis.responses.length > 0 ? analysis.responses : [{
@@ -1304,10 +1017,10 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
       }],
       auth: authInference.auth,
       source: { file: route.filePath, line: route.line },
-      warnings: analysis.warnings,
+      warnings: [...analysis.warnings, ...authInference.warnings],
     });
 
-    ctx.warnings.push(...analysis.warnings);
+    ctx.warnings.push(...analysis.warnings, ...authInference.warnings);
   }
 
   // Follow mounts

@@ -35,6 +35,7 @@ export async function listFiles(
     ignoreDirectories?: string[];
   },
 ): Promise<string[]> {
+  const resolvedRootDirectory = path.resolve(rootDirectory);
   const ignoreDirectories = new Set(options?.ignoreDirectories ?? []);
   const results: string[] = [];
 
@@ -58,8 +59,8 @@ export async function listFiles(
     }
   }
 
-  if (await fileExists(rootDirectory)) {
-    await visit(rootDirectory);
+  if (await fileExists(resolvedRootDirectory)) {
+    await visit(resolvedRootDirectory);
   }
 
   return results.sort();

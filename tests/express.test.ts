@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { defaultConfig } from "../src/core/config";
@@ -138,5 +140,38 @@ describe("Express adapter", () => {
     expect(searchCatalog?.requestBody?.schema.properties?.filters?.properties?.featured?.type).toBe("boolean");
     expect(searchCatalog?.requestBody?.schema.required).toContain("filters");
     expect(searchCatalog?.responses.map((response) => response.statusCode)).toEqual(expect.arrayContaining(["200", "422"]));
+  });
+
+  it("produces the same mounted routes when the project root is relative", async () => {
+    const relativeRoot = path.relative(process.cwd(), fixturePath("express"));
+    const artifacts = await generateArtifacts(relativeRoot, defaultConfig());
+
+    expect(artifacts.normalized.endpoints).toContainEqual(expect.objectContaining({
+      method: "post",
+      path: "/api/v1/users",
+      operationId: "createUser",
+    }));
+    expect(artifacts.normalized.endpoints).toContainEqual(expect.objectContaining({
+      method: "get",
+      path: "/api/admin/users",
+      operationId: "listAdminUsers",
+    }));
+  });
+
+  it("flattens middleware arrays for auth inference on routes and mounts", async () => {
+    const artifacts = await generateArtifacts(
+      fixturePath("express-array-middleware"),
+      defaultConfig(),
+    );
+
+    const reports = artifacts.normalized.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/reports"
+    );
+    const adminStats = artifacts.normalized.endpoints.find((endpoint) =>
+      endpoint.method === "get" && endpoint.path === "/api/admin/stats"
+    );
+
+    expect(reports?.auth.type).toBe("bearer");
+    expect(adminStats?.auth.type).toBe("bearer");
   });
 });
