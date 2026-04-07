@@ -102,7 +102,7 @@ export function extractDirectReturnArrays(methodBody: string): string[] {
 export function findPhpMethod(
   content: string,
   methodName: string,
-): { params: string[]; body: string } | undefined {
+): { params: string[]; rawParams: string; body: string } | undefined {
   const methodMatch = new RegExp(
     `function\\s+${methodName}\\s*\\(([^)]*)\\)`,
     "m",
@@ -122,6 +122,7 @@ export function findPhpMethod(
 
   return {
     params: extractPhpParamNames(methodMatch[1] ?? ""),
+    rawParams: methodMatch[1] ?? "",
     body,
   };
 }
