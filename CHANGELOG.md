@@ -2,10 +2,16 @@
 
 ## Unreleased
 
+## v0.4.3
+
+_Released: 2026-04-07_
+
 - Add a safety guard that refuses to clear a non-empty `output.brunoDir` unless it already looks like a generated Bruno collection
 - Support configurable bearer middleware hints for Laravel and surface unknown Laravel auth middleware in `doctor`
 - Improve Laravel route parsing for multi-line route and group declarations, with regression coverage
+- Refactor the Laravel adapter into focused route, request, response, resource, example, and shared modules without changing generated output
 - Sync config documentation with the current default `baseUrl` and auth middleware hint contract
+- Keep the proven regex-based Express scanner as the default path while retaining the AST scanner behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`
 
 ## v0.4.2
 
