@@ -179,7 +179,7 @@ export function buildOperationId(
   handler?: ParsedHandler,
 ): string {
   if (handler?.controller && handler.action) {
-    return `${camelCase(shortPhpClassName(handler.controller))}${capitalize(handler.action)}`;
+    return `${camelCase(buildControllerOperationStem(handler.controller))}${capitalize(handler.action)}`;
   }
 
   const cleanPath = pathname
@@ -197,7 +197,7 @@ export function buildSummary(
   handler?: ParsedHandler,
 ): string {
   if (handler?.action && handler.controller) {
-    return `${shortPhpClassName(handler.controller)}::${handler.action}`;
+    return `${buildControllerDisplayName(handler.controller)}::${handler.action}`;
   }
 
   return `${method.toUpperCase()} ${pathname}`;
@@ -205,7 +205,7 @@ export function buildSummary(
 
 export function inferTag(pathname: string, controller?: string): string {
   if (controller) {
-    return shortPhpClassName(controller).replace(/Controller$/, "");
+    return buildControllerTag(controller);
   }
 
   return pathname.split("/").filter(Boolean)[0] ?? "default";
@@ -346,6 +346,35 @@ export function shortPhpClassName(input: string): string {
   const cleaned = normalizePhpClassName(input);
   const parts = cleaned.split("\\");
   return parts[parts.length - 1];
+}
+
+function buildControllerDisplayName(controller: string): string {
+  const parts = normalizedControllerParts(controller);
+  return parts.join("\\");
+}
+
+function buildControllerOperationStem(controller: string): string {
+  return normalizedControllerParts(controller).join(" ");
+}
+
+function buildControllerTag(controller: string): string {
+  const parts = normalizedControllerParts(controller);
+  return parts
+    .map((part, index) =>
+      index === parts.length - 1
+        ? part.replace(/Controller$/, "")
+        : part,
+    )
+    .join("");
+}
+
+function normalizedControllerParts(controller: string): string[] {
+  const parts = normalizePhpClassName(controller).split("\\").filter(Boolean);
+  const controllerIndex = parts.lastIndexOf("Controllers");
+  const relevantParts =
+    controllerIndex >= 0 ? parts.slice(controllerIndex + 1) : parts;
+
+  return relevantParts.length > 0 ? relevantParts : [shortPhpClassName(controller)];
 }
 
 export function countBraceDelta(input: string): number {

@@ -172,6 +172,9 @@ describe("Laravel adapter", () => {
       (endpoint) => endpoint.path === "/api/users" && endpoint.method === "get",
     );
     expect(apiUsers?.auth.type).toBe("bearer");
+    expect(apiUsers?.operationId).toBe("apiUsercontrollerIndex");
+    expect(apiUsers?.tags).toEqual(["ApiUser"]);
+    expect(apiUsers?.summary).toBe("Api\\UserController::index");
     expect(apiUsers?.responses).toContainEqual(
       expect.objectContaining({
         statusCode: "200",
@@ -191,6 +194,7 @@ describe("Laravel adapter", () => {
     const apiStoreUser = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/users" && endpoint.method === "post",
     );
+    expect(apiStoreUser?.operationId).toBe("apiUsercontrollerStore");
     expect(apiStoreUser?.requestBody?.schema.properties?.email?.format).toBe("email");
     expect(apiStoreUser?.requestBody?.schema.properties?.role?.enum).toEqual([
       "member",
@@ -217,6 +221,9 @@ describe("Laravel adapter", () => {
       (endpoint) =>
         endpoint.path === "/api/admin/users" && endpoint.method === "post",
     );
+    expect(adminStoreUser?.operationId).toBe("adminUsercontrollerStore");
+    expect(adminStoreUser?.tags).toEqual(["AdminUser"]);
+    expect(adminStoreUser?.summary).toBe("Admin\\UserController::store");
     expect(
       adminStoreUser?.requestBody?.schema.properties?.permissions?.type,
     ).toBe("array");
