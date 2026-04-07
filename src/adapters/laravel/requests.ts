@@ -8,7 +8,8 @@ import type {
   NormalizedResponse,
   SchemaObject,
 } from "../../core/model";
-import { extractLaravelResponses, parsePhpExampleValue } from "./responses";
+import { parsePhpExampleValue } from "./examples";
+import { extractLaravelResponses } from "./responses";
 import {
   type ControllerAnalysis,
   type ParsedHandler,
