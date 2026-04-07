@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { defaultConfig } from "../src/core/config";
@@ -138,5 +140,21 @@ describe("Express adapter", () => {
     expect(searchCatalog?.requestBody?.schema.properties?.filters?.properties?.featured?.type).toBe("boolean");
     expect(searchCatalog?.requestBody?.schema.required).toContain("filters");
     expect(searchCatalog?.responses.map((response) => response.statusCode)).toEqual(expect.arrayContaining(["200", "422"]));
+  });
+
+  it("produces the same mounted routes when the project root is relative", async () => {
+    const relativeRoot = path.relative(process.cwd(), fixturePath("express"));
+    const artifacts = await generateArtifacts(relativeRoot, defaultConfig());
+
+    expect(artifacts.normalized.endpoints).toContainEqual(expect.objectContaining({
+      method: "post",
+      path: "/api/v1/users",
+      operationId: "createUser",
+    }));
+    expect(artifacts.normalized.endpoints).toContainEqual(expect.objectContaining({
+      method: "get",
+      path: "/api/admin/users",
+      operationId: "listAdminUsers",
+    }));
   });
 });

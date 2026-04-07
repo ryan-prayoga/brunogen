@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import { scanExpressProjectAst } from "../src/adapters/express-ast";
@@ -95,5 +97,35 @@ describe("Express AST adapter", () => {
     expect(
       searchCatalog?.responses.map((response) => response.statusCode),
     ).toEqual(expect.arrayContaining(["200", "422"]));
+  });
+
+  it("matches absolute-root output when scanning a relative project root", async () => {
+    const config = defaultConfig();
+    const absoluteRoot = fixturePath("express");
+    const relativeRoot = path.relative(process.cwd(), absoluteRoot);
+
+    const [absoluteProject, relativeProject] = await Promise.all([
+      scanExpressProjectAst(
+        absoluteRoot,
+        "acme/express-demo",
+        "0.0.0",
+        config,
+      ),
+      scanExpressProjectAst(
+        relativeRoot,
+        "acme/express-demo",
+        "0.0.0",
+        config,
+      ),
+    ]);
+
+    const summarize = (project: typeof absoluteProject) =>
+      project.endpoints.map((endpoint) => ({
+        method: endpoint.method,
+        path: endpoint.path,
+        operationId: endpoint.operationId,
+      }));
+
+    expect(summarize(relativeProject)).toEqual(summarize(absoluteProject));
   });
 });
