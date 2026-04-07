@@ -39,14 +39,6 @@ paths:
                 - email
                 - password
       responses:
-        "200":
-          description: Inferred JSON response
-          content:
-            application/json:
-              schema:
-                type: object
-                properties: {}
-              example: {}
         "201":
           description: Inferred JSON response
           content:

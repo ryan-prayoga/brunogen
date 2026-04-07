@@ -70,6 +70,8 @@ describe("Go adapters", () => {
         message: "widget created",
       }),
     }));
+    expect(createWidget?.responses.map((response) => response.statusCode)).toEqual(expect.arrayContaining(["201", "400"]));
+    expect(createWidget?.responses.map((response) => response.statusCode)).not.toContain("200");
 
     const deleteWidget = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/widgets/{id}" && endpoint.method === "delete");
     expect(deleteWidget?.responses).toContainEqual(expect.objectContaining({
