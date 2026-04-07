@@ -36,52 +36,6 @@ body:json {
 }
 
 example {
-  name: "200 Response"
-  description: "Inferred JSON response"
-
-  request: {
-    url: {{baseUrl}}/api/users
-    method: post
-    mode: json
-    headers: {
-      accept: application/json
-      content-type: application/json
-    }
-
-    body:json: {
-      {
-        "name": "",
-        "email": "user@example.com",
-        "age": 1,
-        "role": "user",
-        "password": "",
-        "tags": [
-          ""
-        ]
-      }
-    }
-  }
-
-  response: {
-    headers: {
-      Content-Type: application/json
-    }
-
-    status: {
-      code: 200
-      text: OK
-    }
-
-    body: {
-      type: json
-      content: '''
-        {}
-      '''
-    }
-  }
-}
-
-example {
   name: "201 Response"
   description: "Inferred JSON response"
 

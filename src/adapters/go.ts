@@ -334,10 +334,10 @@ function parseGoScope(input: {
   const endpoints: NormalizedEndpoint[] = [];
   const warnings: GenerationWarning[] = [];
   const groups = new Map<string, GoGroupContext>(seedGroups);
-  const lines = content.split(/\r?\n/);
+  const statements = collectGoStatements(content);
 
-  for (const [index, rawLine] of lines.entries()) {
-    const line = rawLine.trim();
+  for (const statement of statements) {
+    const line = statement.text;
     if (!line || line.startsWith("//")) {
       continue;
     }
@@ -475,13 +475,13 @@ function parseGoScope(input: {
       auth: authInference.auth,
       source: {
         file: filePath,
-        line: index + 1,
+        line: statement.line,
       },
       warnings: [
         ...handlerAnalysis.warnings,
         ...authInference.warnings.map((warning) => ({
           ...warning,
-          location: { file: filePath, line: index + 1 },
+          location: { file: filePath, line: statement.line },
         })),
       ],
     });
@@ -490,7 +490,7 @@ function parseGoScope(input: {
       ...handlerAnalysis.warnings,
       ...authInference.warnings.map((warning) => ({
         ...warning,
-        location: { file: filePath, line: index + 1 },
+        location: { file: filePath, line: statement.line },
       })),
     );
   }
@@ -1085,14 +1085,13 @@ function extractGoResponses(body: string): NormalizedResponse[] {
   const responses = new Map<string, NormalizedResponse>();
   const exampleContext = createGoExampleContext(body);
 
-  for (const rawLine of body.split(/\r?\n/)) {
-    const line = rawLine.trim();
+  for (const { text: line } of collectGoStatements(body)) {
     if (!line) {
       continue;
     }
 
     const statusJsonMatch = line.match(
-      /\.Status\(\s*([^)]+)\s*\)\.JSON\(\s*(.+)\)$/,
+      /\.\s*Status\(\s*([^)]+)\s*\)\s*\.\s*JSON\(\s*(.+)\)$/,
     );
     if (statusJsonMatch?.[1] && statusJsonMatch[2]) {
       const statusCode = parseGoStatusCode(statusJsonMatch[1]) ?? "200";
@@ -1112,7 +1111,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
     }
 
     const abortJsonMatch = line.match(
-      /\.AbortWithStatusJSON\(\s*([^,]+)\s*,\s*(.+)\)$/,
+      /\.\s*AbortWithStatusJSON\(\s*([^,]+)\s*,\s*(.+)\)$/,
     );
     if (abortJsonMatch?.[1] && abortJsonMatch[2]) {
       const statusCode = parseGoStatusCode(abortJsonMatch[1]) ?? "500";
@@ -1131,7 +1130,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       }
     }
 
-    const abortMatch = line.match(/\.AbortWithStatus\(\s*([^)]+)\s*\)$/);
+    const abortMatch = line.match(/\.\s*AbortWithStatus\(\s*([^)]+)\s*\)$/);
     if (abortMatch?.[1]) {
       const statusCode = parseGoStatusCode(abortMatch[1]) ?? "500";
       if (!responses.has(statusCode)) {
@@ -1142,7 +1141,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       }
     }
 
-    const sendStatusMatch = line.match(/\.SendStatus\(\s*([^)]+)\s*\)$/);
+    const sendStatusMatch = line.match(/\.\s*SendStatus\(\s*([^)]+)\s*\)$/);
     if (sendStatusMatch?.[1]) {
       const statusCode = parseGoStatusCode(sendStatusMatch[1]) ?? "204";
       if (!responses.has(statusCode)) {
@@ -1153,7 +1152,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
       }
     }
 
-    const statusOnlyMatch = line.match(/\.Status\(\s*([^)]+)\s*\)$/);
+    const statusOnlyMatch = line.match(/\.\s*Status\(\s*([^)]+)\s*\)$/);
     if (statusOnlyMatch?.[1] && !line.includes(".JSON(")) {
       const statusCode = parseGoStatusCode(statusOnlyMatch[1]) ?? "204";
       if (!responses.has(statusCode)) {
@@ -1163,9 +1162,46 @@ function extractGoResponses(body: string): NormalizedResponse[] {
         });
       }
     }
+
+    const directJsonMatch = line.match(/\.\s*JSON\(\s*(.+)\)$/);
+    if (directJsonMatch?.[1] && !/\.\s*Status\(/.test(line)) {
+      const jsonCall = extractMethodCallArguments(line, "JSON")[0];
+      const args = jsonCall?.args ?? [];
+      if (args.length === 0) {
+        continue;
+      }
+
+      const statusCode =
+        args.length === 1 ? "200" : (parseGoStatusCode(args[0]) ?? "200");
+      const example = buildGoExpressionExample(
+        args.length === 1 ? args[0] : args[1],
+        exampleContext,
+      );
+      if (!responses.has(statusCode)) {
+        responses.set(statusCode, {
+          statusCode,
+          description: "Inferred JSON response",
+          contentType: "application/json",
+          schema: inferSchemaFromExample(example),
+          example,
+        });
+      }
+    }
+
+    const noContentCall = extractMethodCallArguments(line, "NoContent")[0];
+    const noContentArgs = noContentCall?.args ?? [];
+    if (noContentArgs.length >= 1) {
+      const statusCode = parseGoStatusCode(noContentArgs[0]) ?? "204";
+      if (!responses.has(statusCode)) {
+        responses.set(statusCode, {
+          statusCode,
+          description: "Inferred empty response",
+        });
+      }
+    }
   }
 
-  for (const args of extractMethodCallArguments(body, "SuccessResponse")) {
+  for (const { args } of extractMethodCallArguments(body, "SuccessResponse")) {
     if (args.length < 3) {
       continue;
     }
@@ -1175,7 +1211,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
     responses.set("200", buildResponseWrapper("200", message, data, ""));
   }
 
-  for (const args of extractMethodCallArguments(body, "ErrorResponse")) {
+  for (const { args } of extractMethodCallArguments(body, "ErrorResponse")) {
     if (args.length < 5) {
       continue;
     }
@@ -1196,7 +1232,7 @@ function extractGoResponses(body: string): NormalizedResponse[] {
     }
   }
 
-  for (const args of extractMethodCallArguments(
+  for (const { args } of extractMethodCallArguments(
     body,
     "InternalErrorResponse",
   )) {
@@ -1212,42 +1248,6 @@ function extractGoResponses(body: string): NormalizedResponse[] {
         "500",
         buildResponseWrapper("500", message, null, errorDetail),
       );
-    }
-  }
-
-  for (const args of extractMethodCallArguments(body, "JSON")) {
-    if (args.length === 0) {
-      continue;
-    }
-
-    const statusCode =
-      args.length === 1 ? "200" : (parseGoStatusCode(args[0]) ?? "200");
-    const example = buildGoExpressionExample(
-      args.length === 1 ? args[0] : args[1],
-      exampleContext,
-    );
-    if (!responses.has(statusCode)) {
-      responses.set(statusCode, {
-        statusCode,
-        description: "Inferred JSON response",
-        contentType: "application/json",
-        schema: inferSchemaFromExample(example),
-        example,
-      });
-    }
-  }
-
-  for (const args of extractMethodCallArguments(body, "NoContent")) {
-    if (args.length < 1) {
-      continue;
-    }
-
-    const statusCode = parseGoStatusCode(args[0]) ?? "204";
-    if (!responses.has(statusCode)) {
-      responses.set(statusCode, {
-        statusCode,
-        description: "Inferred empty response",
-      });
     }
   }
 
@@ -1324,8 +1324,8 @@ function inferSchemaFromExample(example: unknown): SchemaObject {
 function extractMethodCallArguments(
   body: string,
   methodName: string,
-): string[][] {
-  const results: string[][] = [];
+): Array<{ args: string[]; callIndex: number }> {
+  const results: Array<{ args: string[]; callIndex: number }> = [];
   let offset = 0;
 
   while (offset < body.length) {
@@ -1343,11 +1343,105 @@ function extractMethodCallArguments(
       break;
     }
 
-    results.push(splitTopLevel(argsBlock.slice(1, -1), ","));
+    results.push({
+      args: splitTopLevel(argsBlock.slice(1, -1), ","),
+      callIndex,
+    });
     offset = openParenIndex + argsBlock.length;
   }
 
   return results;
+}
+
+function collectGoStatements(
+  content: string,
+): Array<{ text: string; line: number }> {
+  const statements: Array<{ text: string; line: number }> = [];
+  let current = "";
+  let currentLine = 1;
+
+  for (const [index, rawLine] of content.split(/\r?\n/).entries()) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("//")) {
+      continue;
+    }
+
+    if (!current) {
+      currentLine = index + 1;
+    }
+    current = current ? `${current} ${line}` : line;
+    if (shouldContinueGoStatement(current)) {
+      continue;
+    }
+
+    statements.push({ text: current, line: currentLine });
+    current = "";
+  }
+
+  if (current) {
+    statements.push({ text: current, line: currentLine });
+  }
+
+  return statements;
+}
+
+function shouldContinueGoStatement(statement: string): boolean {
+  let parenDepth = 0;
+  let bracketDepth = 0;
+  let quote: "'" | '"' | "`" | null = null;
+  let escaped = false;
+
+  for (const character of statement) {
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+
+    if (character === "\\") {
+      escaped = true;
+      continue;
+    }
+
+    if (character === "'" || character === '"' || character === "`") {
+      if (quote === character) {
+        quote = null;
+      } else if (!quote) {
+        quote = character;
+      }
+      continue;
+    }
+
+    if (quote) {
+      continue;
+    }
+
+    if (character === "(") {
+      parenDepth += 1;
+      continue;
+    }
+
+    if (character === ")") {
+      parenDepth -= 1;
+      continue;
+    }
+
+    if (character === "[") {
+      bracketDepth += 1;
+      continue;
+    }
+
+    if (character === "]") {
+      bracketDepth -= 1;
+    }
+  }
+
+  return (
+    parenDepth > 0 ||
+    bracketDepth > 0 ||
+    /\.\s*$/.test(statement) ||
+    /,\s*$/.test(statement) ||
+    /(?::=|=)\s*$/.test(statement)
+  );
 }
 
 function parseGoStatusCode(expression: string): string | undefined {
