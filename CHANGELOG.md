@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.4.9
+
+_Released: 2026-04-08_
+
+- Replace relative README asset and document links with GitHub-hosted absolute URLs so the npm package page keeps working after publish
+- Keep the shorter npm-friendly README while preserving clickable demo previews, docs, changelog, and contributor links
+
 ## v0.4.8
 
 _Released: 2026-04-08_

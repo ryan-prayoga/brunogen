@@ -12,27 +12,27 @@ Laravel is the strongest path today, with materially richer request and response
   <tr>
     <td align="center" valign="top">
       <strong>Laravel</strong><br />
-      <a href="docs/assets/preview-laravel.png">
-        <img src="docs/assets/preview-laravel.png" alt="Laravel output preview" width="240" />
+      <a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/assets/preview-laravel.png">
+        <img src="https://raw.githubusercontent.com/ryan-prayoga/brunogen/main/docs/assets/preview-laravel.png" alt="Laravel output preview" width="240" />
       </a><br />
       <sub>FormRequest + Resource response</sub><br />
-      <sub><a href="docs/demo/laravel-happy-path/README.md">Open Laravel demo</a></sub>
+      <sub><a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/laravel-happy-path/README.md">Open Laravel demo</a></sub>
     </td>
     <td align="center" valign="top">
       <strong>Express</strong><br />
-      <a href="docs/assets/preview-express.png">
-        <img src="docs/assets/preview-express.png" alt="Express output preview" width="240" />
+      <a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/assets/preview-express.png">
+        <img src="https://raw.githubusercontent.com/ryan-prayoga/brunogen/main/docs/assets/preview-express.png" alt="Express output preview" width="240" />
       </a><br />
       <sub>Mounted router + local response helper</sub><br />
-      <sub><a href="docs/demo/express-happy-path/README.md">Open Express demo</a></sub>
+      <sub><a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/express-happy-path/README.md">Open Express demo</a></sub>
     </td>
     <td align="center" valign="top">
       <strong>Go</strong><br />
-      <a href="docs/assets/preview-go.png">
-        <img src="docs/assets/preview-go.png" alt="Go output preview" width="240" />
+      <a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/assets/preview-go.png">
+        <img src="https://raw.githubusercontent.com/ryan-prayoga/brunogen/main/docs/assets/preview-go.png" alt="Go output preview" width="240" />
       </a><br />
       <sub>Gin bind + direct JSON response</sub><br />
-      <sub><a href="docs/demo/go-happy-path/README.md">Open Go demo</a></sub>
+      <sub><a href="https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/go-happy-path/README.md">Open Go demo</a></sub>
     </td>
   </tr>
 </table>
@@ -64,9 +64,9 @@ If you are testing from this repository checkout instead of an installed package
 
 | Framework | Current fit | First place to try | Demo |
 | --- | --- | --- | --- |
-| Laravel | Strongest path today | `cd tests/fixtures/laravel && brunogen init && brunogen generate` | [Laravel demo](docs/demo/laravel-happy-path/README.md) |
-| Express | Useful, still heuristic | `cd tests/fixtures/express && brunogen init && brunogen generate` | [Express demo](docs/demo/express-happy-path/README.md) |
-| Go | Experimental | `cd tests/fixtures/gin && brunogen init && brunogen generate` | [Go demo](docs/demo/go-happy-path/README.md) |
+| Laravel | Strongest path today | `cd tests/fixtures/laravel && brunogen init && brunogen generate` | [Laravel demo](https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/laravel-happy-path/README.md) |
+| Express | Useful, still heuristic | `cd tests/fixtures/express && brunogen init && brunogen generate` | [Express demo](https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/express-happy-path/README.md) |
+| Go | Experimental | `cd tests/fixtures/gin && brunogen init && brunogen generate` | [Go demo](https://github.com/ryan-prayoga/brunogen/blob/main/docs/demo/go-happy-path/README.md) |
 
 To refresh the checked-in demo snapshots after an intentional output change:
 
@@ -107,7 +107,7 @@ OpenAPI becomes the internal source of truth after scanning. Bruno is the output
 
 ## Read More
 
-- [Detailed reference, examples, config, and support matrix](docs/reference.md)
-- [CHANGELOG.md](CHANGELOG.md)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [docs/release-checklist.md](docs/release-checklist.md)
+- [Detailed reference, examples, config, and support matrix](https://github.com/ryan-prayoga/brunogen/blob/main/docs/reference.md)
+- [CHANGELOG.md](https://github.com/ryan-prayoga/brunogen/blob/main/CHANGELOG.md)
+- [CONTRIBUTING.md](https://github.com/ryan-prayoga/brunogen/blob/main/CONTRIBUTING.md)
+- [docs/release-checklist.md](https://github.com/ryan-prayoga/brunogen/blob/main/docs/release-checklist.md)
