@@ -425,17 +425,19 @@ function inferLaravelCollectionTransformExample(
     return unresolvedPhpExample;
   }
 
-  return source.map((item) =>
-    parsePhpExampleValue(
+  return source.map((item, index) => {
+    const seedAssignments = new Map<string, string>([
+      [parsedCallback.parameter, stringifyPhpExampleValue(item)],
+    ]);
+    if (parsedCallback.indexParameter) {
+      seedAssignments.set(parsedCallback.indexParameter, String(index));
+    }
+
+    return parsePhpExampleValue(
       parsedCallback.expression,
-      createPhpExampleContext(
-        "",
-        new Map([
-          [parsedCallback.parameter, stringifyPhpExampleValue(item)],
-        ]),
-      ),
-    ),
-  );
+      createPhpExampleContext("", seedAssignments),
+    );
+  });
 }
 
 function consumePhpCall(
@@ -492,19 +494,20 @@ function consumePhpChainCall(
 
 function parseLaravelCollectionTransformCallback(
   rawCallback: string,
-): { parameter: string; expression: string } | null {
+): { parameter: string; indexParameter?: string; expression: string } | null {
   const callback = rawCallback.trim();
   const arrowMatch = callback.match(
     /^fn\s*\(\s*([^)]*?)\s*\)\s*=>\s*([\s\S]+)$/,
   );
   const arrowSignature = arrowMatch?.[1];
   const arrowExpression = arrowMatch?.[2];
-  const arrowParameter = arrowSignature
-    ? extractLaravelCallbackParameter(arrowSignature)
-    : null;
-  if (arrowParameter && arrowExpression) {
+  const arrowParameters = arrowSignature
+    ? extractLaravelCallbackParameters(arrowSignature)
+    : [];
+  if (arrowParameters[0] && arrowExpression) {
     return {
-      parameter: arrowParameter,
+      parameter: arrowParameters[0],
+      indexParameter: arrowParameters[1],
       expression: arrowExpression.trim(),
     };
   }
@@ -514,12 +517,13 @@ function parseLaravelCollectionTransformCallback(
   );
   const closureSignature = closureMatch?.[1];
   const closureExpression = closureMatch?.[2];
-  const closureParameter = closureSignature
-    ? extractLaravelCallbackParameter(closureSignature)
-    : null;
-  if (closureParameter && closureExpression) {
+  const closureParameters = closureSignature
+    ? extractLaravelCallbackParameters(closureSignature)
+    : [];
+  if (closureParameters[0] && closureExpression) {
     return {
-      parameter: closureParameter,
+      parameter: closureParameters[0],
+      indexParameter: closureParameters[1],
       expression: closureExpression.trim(),
     };
   }
@@ -527,16 +531,15 @@ function parseLaravelCollectionTransformCallback(
   return null;
 }
 
-function extractLaravelCallbackParameter(rawSignature: string): string | null {
-  const [parameter] = splitTopLevel(rawSignature.trim(), ",");
-  if (!parameter) {
-    return null;
-  }
-
-  const parameterMatch = parameter.match(
-    /^(?:[\w\\|&?]+\s+)?(?:&\s*)?\$([A-Za-z_][A-Za-z0-9_]*)$/,
-  );
-  return parameterMatch?.[1] ?? null;
+function extractLaravelCallbackParameters(rawSignature: string): string[] {
+  return splitTopLevel(rawSignature.trim(), ",")
+    .map((parameter) => {
+      const parameterMatch = parameter.trim().match(
+        /^(?:[\w\\|&?]+\s+)?(?:&\s*)?(?:\.\.\.\s*)?\$([A-Za-z_][A-Za-z0-9_]*)(?:\s*=\s*[\s\S]+)?$/,
+      );
+      return parameterMatch?.[1] ?? null;
+    })
+    .filter((parameter): parameter is string => Boolean(parameter));
 }
 
 function buildPhpExampleForField(
