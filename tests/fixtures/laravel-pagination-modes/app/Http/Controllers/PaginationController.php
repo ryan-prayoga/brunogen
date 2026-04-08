@@ -8,6 +8,7 @@ use App\Http\Resources\ProjectCollection;
 use App\Http\Resources\ProjectResource;
 use App\Http\Resources\ProjectMappedCollection;
 use App\Http\Resources\ProjectFilteredCollection;
+use App\Http\Resources\ProjectThroughCollection;
 use App\Http\Resources\ProjectWrappedCollection;
 
 class PaginationController
@@ -99,6 +100,15 @@ class PaginationController
 
         return new ProjectFilteredCollection(
             Project::query()->paginate(2, ['*'], 'page', $page)
+        );
+    }
+
+    public function collectionThrough()
+    {
+        $page = request()->query('page');
+
+        return new ProjectThroughCollection(
+            Project::query()->paginate(7, ['*'], 'page', $page)
         );
     }
 }

@@ -13,4 +13,5 @@ Route::prefix('api')->group(function () {
     Route::get('/projects/collection-wrapped', [PaginationController::class, 'collectionWrapped']);
     Route::get('/projects/collection-mapped', [PaginationController::class, 'collectionMapped']);
     Route::get('/projects/collection-filtered', [PaginationController::class, 'collectionFiltered']);
+    Route::get('/projects/collection-through', [PaginationController::class, 'collectionThrough']);
 });
