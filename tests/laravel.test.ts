@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(11);
+    expect(artifacts.normalized.endpoints).toHaveLength(12);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -734,6 +734,59 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 9,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionTypedClosure = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-typed-closure" &&
+        endpoint.method === "get",
+    );
+    const collectionTypedClosureSuccess = collectionTypedClosure?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionTypedClosure?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionTypedClosureSuccess?.schema?.properties?.data).toBeUndefined();
+    expect(collectionTypedClosureSuccess?.schema?.properties?.typed_closures?.type).toBe("array");
+    expect(
+      collectionTypedClosureSuccess?.schema?.properties?.typed_closures?.items?.properties
+        ?.identifier?.type,
+    ).toBe("integer");
+    expect(
+      collectionTypedClosureSuccess?.schema?.properties?.typed_closures?.items?.properties?.owner
+        ?.type,
+    ).toBe("string");
+    expect(
+      collectionTypedClosureSuccess?.schema?.properties?.typed_closures?.items?.properties?.label
+        ?.type,
+    ).toBe("string");
+    expect(
+      collectionTypedClosureSuccess?.schema?.properties?.meta?.properties?.per_page?.type,
+    ).toBe("integer");
+    expect(collectionTypedClosureSuccess?.example).toEqual({
+      typed_closures: [
+        {
+          identifier: 1,
+          owner: "user@example.com",
+          label: "typed-closure-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 11,
         to: 1,
         total: 1,
       },
