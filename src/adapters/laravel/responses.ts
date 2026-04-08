@@ -19,7 +19,10 @@ import {
   findPhpMethod,
   parsePhpString,
 } from "./shared";
-import { extractLaravelResourceResponses } from "./resources";
+import {
+  extractLaravelResourceResponses,
+  isLaravelResourceResponseExpression,
+} from "./resources";
 
 export async function extractLaravelResponses(
   methodBody: string,
@@ -38,6 +41,10 @@ export async function extractLaravelResponses(
   for (const jsonCall of extractReturnResponseJsonCalls(methodBody)) {
     const args = splitTopLevel(jsonCall.slice(1, -1), ",");
     if (args.length === 0) {
+      continue;
+    }
+
+    if (isLaravelResourceResponseExpression(args[0] ?? "")) {
       continue;
     }
 

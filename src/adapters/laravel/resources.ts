@@ -48,6 +48,7 @@ export async function extractLaravelResourceResponses(
       parsedResourceReturn.additional,
       parsedResourceReturn.additionalSchema,
       parsedResourceReturn.payload,
+      parsedResourceReturn.statusCode,
       fileContext,
     );
     if (resourceResponse) {
@@ -65,6 +66,7 @@ async function buildLaravelResourceResponse(
   additional?: unknown,
   additionalSchemaHint?: SchemaObject,
   payload?: unknown,
+  statusCode = "200",
   fileContext?: PhpFileContext,
 ): Promise<NormalizedResponse | undefined> {
   const resourceSchema = await parseLaravelResourceSchema(
@@ -121,7 +123,7 @@ async function buildLaravelResourceResponse(
       : baseExample;
 
   return {
-    statusCode: "200",
+    statusCode,
     description: "Inferred Laravel resource response",
     contentType: "application/json",
     schema: wrappedSchema,
@@ -345,8 +347,17 @@ function parseLaravelResourceReturnStatement(
       additional?: unknown;
       additionalSchema?: SchemaObject;
       payload?: unknown;
+      statusCode?: string;
     }
   | undefined {
+  const wrappedJsonCall = parseLaravelResponseJsonResourceStatement(
+    statement,
+    exampleContext,
+  );
+  if (wrappedJsonCall) {
+    return wrappedJsonCall;
+  }
+
   const newResourceMatch = statement.match(
     /^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/,
   );
@@ -367,6 +378,7 @@ function parseLaravelResourceReturnStatement(
         explicitAdditional,
       ),
       additionalSchema: inferredCollection?.additionalSchema,
+      statusCode: "200",
       payload: inferredCollection?.payload ?? (rawPayload
         ? parsePhpExampleValue(rawPayload, exampleContext)
         : undefined),
@@ -395,12 +407,89 @@ function parseLaravelResourceReturnStatement(
         explicitAdditional,
       ),
       additionalSchema: inferredCollection?.additionalSchema,
+      statusCode: "200",
       payload: inferredCollection?.payload ??
         (rawPayload ? parsePhpExampleValue(rawPayload, exampleContext) : undefined),
     };
   }
 
   return undefined;
+}
+
+export function isLaravelResourceResponseExpression(expression: string): boolean {
+  return Boolean(
+    expression.trim().match(
+      /^(?:new\s+[A-Za-z0-9_\\]+|[A-Za-z0-9_\\]+::(?:make|collection))\s*\(/,
+    ),
+  );
+}
+
+function parseLaravelResponseJsonResourceStatement(
+  statement: string,
+  exampleContext: PhpExampleContext,
+):
+  | {
+      resourceType: string;
+      mode: "single" | "collection";
+      additional?: unknown;
+      additionalSchema?: SchemaObject;
+      payload?: unknown;
+      statusCode?: string;
+    }
+  | undefined {
+  const wrappedMatch = statement.match(/^return\s+response\(\)->json\s*\(/);
+  if (!wrappedMatch) {
+    return undefined;
+  }
+
+  const openParenIndex = statement.indexOf("(", wrappedMatch[0].length - 1);
+  const argsBlock =
+    openParenIndex >= 0
+      ? extractBalanced(statement, openParenIndex, "(", ")")
+      : null;
+  if (!argsBlock) {
+    return undefined;
+  }
+
+  const args = splitTopLevel(argsBlock.slice(1, -1), ",");
+  const payloadExpression = args[0]?.trim();
+  if (!payloadExpression || !isLaravelResourceResponseExpression(payloadExpression)) {
+    return undefined;
+  }
+
+  const parsedResourceExpression = parseLaravelResourceReturnStatement(
+    `return ${payloadExpression};`,
+    exampleContext,
+  );
+  if (!parsedResourceExpression) {
+    return undefined;
+  }
+
+  return {
+    ...parsedResourceExpression,
+    statusCode: inferLaravelResourceStatusCode(args[1], exampleContext) ?? "200",
+  };
+}
+
+function inferLaravelResourceStatusCode(
+  rawStatus: string | undefined,
+  exampleContext: PhpExampleContext,
+): string | undefined {
+  if (!rawStatus) {
+    return undefined;
+  }
+
+  const parsed = parsePhpExampleValue(rawStatus, exampleContext);
+  if (typeof parsed === "number" && Number.isInteger(parsed) && parsed > 0) {
+    return String(parsed);
+  }
+
+  const literal = parsePhpString(rawStatus.trim());
+  if (literal && /^\d+$/.test(literal)) {
+    return literal;
+  }
+
+  return rawStatus.trim().match(/^\d{3}$/)?.[0] || undefined;
 }
 
 function extractLaravelResourceAdditional(

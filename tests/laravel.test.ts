@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(19);
+    expect(artifacts.normalized.endpoints).toHaveLength(20);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -1144,6 +1144,60 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 19,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionJsonWrapped = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-json-wrapped" &&
+        endpoint.method === "get",
+    );
+    const collectionJsonWrappedAccepted = collectionJsonWrapped?.responses.find(
+      (response) => response.statusCode === "202",
+    );
+    expect(collectionJsonWrapped?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionJsonWrappedAccepted?.schema?.properties?.data).toBeUndefined();
+    expect(collectionJsonWrappedAccepted?.schema?.properties?.transformed?.type).toBe("array");
+    expect(
+      collectionJsonWrappedAccepted?.schema?.properties?.transformed?.items?.properties?.position?.type,
+    ).toBe("integer");
+    expect(
+      collectionJsonWrappedAccepted?.schema?.properties?.transformed?.items?.properties?.identifier?.type,
+    ).toBe("integer");
+    expect(
+      collectionJsonWrappedAccepted?.schema?.properties?.transformed?.items?.properties?.owner?.type,
+    ).toBe("string");
+    expect(
+      collectionJsonWrappedAccepted?.schema?.properties?.transformed?.items?.properties?.label?.type,
+    ).toBe("string");
+    expect(
+      collectionJsonWrappedAccepted?.schema?.properties?.meta?.properties?.per_page?.type,
+    ).toBe("integer");
+    expect(collectionJsonWrappedAccepted?.example).toEqual({
+      transformed: [
+        {
+          position: 0,
+          identifier: 1,
+          owner: "user@example.com",
+          label: "transform-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 21,
         to: 1,
         total: 1,
       },

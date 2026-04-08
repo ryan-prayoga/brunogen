@@ -201,4 +201,16 @@ class PaginationController
             Project::query()->paginate(19, ['*'], 'page', $page)
         );
     }
+
+    public function collectionJsonWrapped()
+    {
+        $page = request()->query('page');
+
+        return response()->json(
+            new ProjectTransformCollection(
+                Project::query()->paginate(21, ['*'], 'page', $page)
+            ),
+            202
+        );
+    }
 }
