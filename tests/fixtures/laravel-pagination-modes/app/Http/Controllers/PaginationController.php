@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Resources\ProjectCollection;
 use App\Http\Resources\ProjectResource;
 
 class PaginationController
@@ -40,5 +41,14 @@ class PaginationController
                 'docs' => 'https://example.test/docs/pagination',
             ],
         ]);
+    }
+
+    public function collectionClass()
+    {
+        $page = request()->query('page');
+
+        return new ProjectCollection(
+            Project::query()->paginate(12, ['*'], 'page', $page)
+        );
     }
 }

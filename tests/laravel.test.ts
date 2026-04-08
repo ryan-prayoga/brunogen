@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(3);
+    expect(artifacts.normalized.endpoints).toHaveLength(4);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -364,6 +364,55 @@ describe("Laravel adapter", () => {
         prev: null,
         next: "https://example.test/projects?page=2",
         docs: "https://example.test/docs/pagination",
+      },
+    });
+
+    const collectionClass = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-class" && endpoint.method === "get",
+    );
+    const collectionClassSuccess = collectionClass?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionClass?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionClassSuccess?.schema?.properties?.data?.type).toBe("array");
+    expect(
+      collectionClassSuccess?.schema?.properties?.data?.items?.properties?.owner_email?.type,
+    ).toBe("string");
+    expect(collectionClassSuccess?.schema?.properties?.meta?.properties?.source?.type).toBe("string");
+    expect(
+      collectionClassSuccess?.schema?.properties?.meta?.properties?.current_page?.type,
+    ).toBe("integer");
+    expect(collectionClassSuccess?.schema?.properties?.links?.properties?.first?.type).toBe("string");
+    expect(collectionClassSuccess?.schema?.properties?.links?.properties?.prev).toEqual({
+      type: "string",
+      nullable: true,
+    });
+    expect(collectionClassSuccess?.example).toEqual({
+      data: [
+        {
+          id: 1,
+          name: "Jane Doe",
+          owner_email: "user@example.com",
+        },
+      ],
+      meta: {
+        source: "resource_collection",
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 12,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
       },
     });
   });

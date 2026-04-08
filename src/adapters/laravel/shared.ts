@@ -34,6 +34,9 @@ export interface LaravelResourceSchema {
   schema: SchemaObject;
   example: unknown;
   collectionExample?: unknown[];
+  modeHint?: "single" | "collection";
+  responseSchema?: SchemaObject;
+  responseExample?: unknown;
 }
 
 export interface ParsedHandler {

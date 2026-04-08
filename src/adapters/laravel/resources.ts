@@ -17,7 +17,9 @@ import {
   extractReturnArray,
   extractReturnStatements,
   findPhpMethod,
+  parsePhpFileContext,
   parsePhpString,
+  resolvePhpClassName,
   resolvePhpClassRecord,
 } from "./shared";
 
@@ -86,8 +88,10 @@ async function buildLaravelResourceResponse(
     additionalSchemaHint,
     explicitAdditionalSchema,
   );
-  const wrappedSchema: SchemaObject =
-    mode === "collection"
+  const resolvedMode = resourceSchema.modeHint ?? mode;
+  const baseSchema: SchemaObject =
+    resourceSchema.responseSchema ??
+    (resolvedMode === "collection"
       ? {
           type: "object",
           properties: {
@@ -95,23 +99,26 @@ async function buildLaravelResourceResponse(
               type: "array",
               items: resourceSchema.schema,
             },
-            ...(additionalSchema?.properties ?? {}),
           },
         }
       : {
           type: "object",
           properties: {
             data: resourceSchema.schema,
-            ...(additionalSchema?.properties ?? {}),
           },
-        };
-  const wrappedExample =
-    mode === "collection"
+        });
+  const wrappedSchema = mergeLaravelSchemaObjects(baseSchema, additionalSchema) ?? baseSchema;
+  const baseExample =
+    resourceSchema.responseExample ??
+    (resolvedMode === "collection"
       ? {
           data: resourceSchema.collectionExample ?? [resourceSchema.example],
-          ...(additionalProperties ?? {}),
         }
-      : { data: resourceSchema.example, ...(additionalProperties ?? {}) };
+      : { data: resourceSchema.example });
+  const wrappedExample =
+    additionalProperties && isPlainLaravelResourceObject(baseExample)
+      ? mergeLaravelResourceAdditional(baseExample, additionalProperties) ?? baseExample
+      : baseExample;
 
   return {
     statusCode: "200",
@@ -127,6 +134,7 @@ async function parseLaravelResourceSchema(
   classIndex: Map<string, PhpClassRecord>,
   payload?: unknown,
   fileContext?: PhpFileContext,
+  seenResourceTypes = new Set<string>(),
 ): Promise<LaravelResourceSchema | undefined> {
   const resourceRecord = resolvePhpClassRecord(
     classIndex,
@@ -137,7 +145,25 @@ async function parseLaravelResourceSchema(
     return undefined;
   }
 
+  if (seenResourceTypes.has(resourceRecord.fullName)) {
+    return undefined;
+  }
+
+  const nextSeenResourceTypes = new Set(seenResourceTypes);
+  nextSeenResourceTypes.add(resourceRecord.fullName);
+
   const content = await fs.readFile(resourceRecord.filePath, "utf8");
+  const resourceFileContext = parsePhpFileContext(content);
+  if (isLaravelResourceCollectionClass(content, resourceFileContext)) {
+    return parseLaravelResourceCollectionSchema(
+      content,
+      resourceFileContext,
+      classIndex,
+      payload,
+      nextSeenResourceTypes,
+    );
+  }
+
   const toArrayMethod = findPhpMethod(content, "toArray");
   if (!toArrayMethod) {
     return undefined;
@@ -179,6 +205,103 @@ async function parseLaravelResourceSchema(
   };
 }
 
+async function parseLaravelResourceCollectionSchema(
+  content: string,
+  resourceFileContext: PhpFileContext,
+  classIndex: Map<string, PhpClassRecord>,
+  payload: unknown,
+  seenResourceTypes: Set<string>,
+): Promise<LaravelResourceSchema | undefined> {
+  const collectedResourceType = extractLaravelCollectedResourceType(
+    content,
+    resourceFileContext,
+  );
+  const collectedResourceSchema = collectedResourceType
+    ? await parseLaravelResourceSchema(
+      collectedResourceType,
+      classIndex,
+      payload,
+      resourceFileContext,
+      seenResourceTypes,
+    )
+    : undefined;
+  const itemSchema = collectedResourceSchema?.schema ?? { type: "object" };
+  const itemExample = collectedResourceSchema?.example ?? {};
+  const collectionExample =
+    collectedResourceSchema?.collectionExample &&
+    collectedResourceSchema.collectionExample.length > 0
+      ? collectedResourceSchema.collectionExample
+      : [itemExample];
+  const toArrayMethod = findPhpMethod(content, "toArray");
+  const arrayLiteral = toArrayMethod
+    ? extractDirectReturnArrays(toArrayMethod.body)[0] ??
+      extractReturnArray(toArrayMethod.body)
+    : null;
+
+  if (!toArrayMethod || !arrayLiteral) {
+    return {
+      schema: itemSchema,
+      example: itemExample,
+      collectionExample,
+      modeHint: "collection",
+    };
+  }
+
+  const responseExample = parsePhpExampleValue(
+    arrayLiteral,
+    createPhpExampleContext(
+      toArrayMethod.body,
+      undefined,
+      undefined,
+      collectionExample,
+    ),
+  );
+
+  return {
+    schema: itemSchema,
+    example: itemExample,
+    collectionExample,
+    modeHint: "collection",
+    responseSchema: inferSchemaFromExample(responseExample),
+    responseExample,
+  };
+}
+
+function isLaravelResourceCollectionClass(
+  content: string,
+  fileContext: PhpFileContext,
+): boolean {
+  const extendsMatch = content.match(
+    /class\s+[A-Za-z_][A-Za-z0-9_]*\s+extends\s+([A-Za-z0-9_\\]+)/,
+  );
+  if (!extendsMatch?.[1]) {
+    return false;
+  }
+
+  const resolvedParent = resolvePhpClassName(extendsMatch[1], fileContext);
+  return resolvedParent === "Illuminate\\Http\\Resources\\Json\\ResourceCollection" ||
+    resolvedParent.endsWith("\\ResourceCollection") ||
+    resolvedParent === "ResourceCollection";
+}
+
+function extractLaravelCollectedResourceType(
+  content: string,
+  fileContext: PhpFileContext,
+): string | undefined {
+  const collectsMatch = content.match(
+    /(?:public|protected)\s+(?:[A-Za-z_][A-Za-z0-9_\\|?]+\s+)?\$collects\s*=\s*([^;]+);/,
+  );
+  if (!collectsMatch?.[1]) {
+    return undefined;
+  }
+
+  const rawCollects = collectsMatch[1].trim();
+  const classLikeValue = rawCollects.match(/^([A-Za-z0-9_\\]+)(?:::class)?$/)?.[1];
+  return classLikeValue
+    ? resolvePhpClassName(classLikeValue, fileContext)
+    : undefined;
+}
+
 function parseLaravelResourceReturnStatement(
   statement: string,
   exampleContext: PhpExampleContext,
@@ -196,6 +319,9 @@ function parseLaravelResourceReturnStatement(
   );
   if (newResourceMatch?.[1]) {
     const rawPayload = extractLaravelResourcePayloadExpression(statement);
+    const inferredCollection = rawPayload
+      ? inferLaravelPaginatorCollection(rawPayload, exampleContext)
+      : undefined;
     const explicitAdditional = extractLaravelResourceAdditional(
       statement,
       exampleContext,
@@ -203,11 +329,14 @@ function parseLaravelResourceReturnStatement(
     return {
       resourceType: newResourceMatch[1],
       mode: "single",
-      additional: explicitAdditional,
-      additionalSchema: undefined,
-      payload: rawPayload
+      additional: mergeLaravelResourceAdditional(
+        inferredCollection?.additional,
+        explicitAdditional,
+      ),
+      additionalSchema: inferredCollection?.additionalSchema,
+      payload: inferredCollection?.payload ?? (rawPayload
         ? parsePhpExampleValue(rawPayload, exampleContext)
-        : undefined,
+        : undefined),
     };
   }
 

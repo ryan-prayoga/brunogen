@@ -14,12 +14,14 @@ export interface PhpExampleContext {
   cache: Map<string, unknown | typeof unresolvedPhpExample>;
   resolving: Set<string>;
   selfExample?: Record<string, unknown>;
+  selfCollectionExample?: unknown[];
 }
 
 export function createPhpExampleContext(
   methodBody: string,
   seedAssignments?: Map<string, string>,
   selfExample?: Record<string, unknown>,
+  selfCollectionExample?: unknown[],
 ): PhpExampleContext {
   const assignments = new Map(seedAssignments ?? []);
   for (const [variableName, expression] of extractPhpVariableAssignments(
@@ -33,6 +35,7 @@ export function createPhpExampleContext(
     cache: new Map(),
     resolving: new Set(),
     selfExample,
+    selfCollectionExample,
   };
 }
 
@@ -210,6 +213,10 @@ function resolvePhpExampleValue(
   if (propertyAccessMatch?.[1] && propertyAccessMatch[2]) {
     const baseName = propertyAccessMatch[1];
     const propertyName = propertyAccessMatch[2];
+
+    if (baseName === "this" && propertyName === "collection" && context?.selfCollectionExample) {
+      return context.selfCollectionExample;
+    }
 
     if (baseName === "this" && context?.selfExample?.[propertyName] !== undefined) {
       return context.selfExample[propertyName];
