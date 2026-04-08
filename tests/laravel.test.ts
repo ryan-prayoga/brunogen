@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(8);
+    expect(artifacts.normalized.endpoints).toHaveLength(9);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -593,6 +593,53 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 3,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionFiltered = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-filtered" && endpoint.method === "get",
+    );
+    const collectionFilteredSuccess = collectionFiltered?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionFiltered?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionFilteredSuccess?.schema?.properties?.data).toBeUndefined();
+    expect(collectionFilteredSuccess?.schema?.properties?.filtered?.type).toBe("array");
+    expect(
+      collectionFilteredSuccess?.schema?.properties?.filtered?.items?.properties?.id?.type,
+    ).toBe("integer");
+    expect(
+      collectionFilteredSuccess?.schema?.properties?.filtered?.items?.properties?.owner?.type,
+    ).toBe("string");
+    expect(
+      collectionFilteredSuccess?.schema?.properties?.filtered?.items?.properties?.label?.type,
+    ).toBe("string");
+    expect(collectionFilteredSuccess?.schema?.properties?.meta?.properties?.per_page?.type).toBe("integer");
+    expect(collectionFilteredSuccess?.example).toEqual({
+      filtered: [
+        {
+          id: 1,
+          owner: "user@example.com",
+          label: "filtered-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 2,
         to: 1,
         total: 1,
       },
