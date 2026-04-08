@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Http\Resources\ProjectAutoCollection;
+use App\Http\Resources\ProjectMethodCollection;
 use App\Http\Resources\ProjectCollection;
 use App\Http\Resources\ProjectResource;
 
@@ -59,6 +60,15 @@ class PaginationController
 
         return new ProjectAutoCollection(
             Project::query()->paginate(8, ['*'], 'page', $page)
+        );
+    }
+
+    public function collectionMethod()
+    {
+        $page = request()->query('page');
+
+        return new ProjectMethodCollection(
+            Project::query()->paginate(6, ['*'], 'page', $page)
         );
     }
 }

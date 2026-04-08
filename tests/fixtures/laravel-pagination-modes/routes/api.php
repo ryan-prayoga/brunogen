@@ -9,4 +9,5 @@ Route::prefix('api')->group(function () {
     Route::get('/projects/merged', [PaginationController::class, 'merged']);
     Route::get('/projects/collection-class', [PaginationController::class, 'collectionClass']);
     Route::get('/projects/collection-auto', [PaginationController::class, 'collectionAuto']);
+    Route::get('/projects/collection-method', [PaginationController::class, 'collectionMethod']);
 });

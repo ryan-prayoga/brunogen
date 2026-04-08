@@ -305,6 +305,15 @@ function extractLaravelCollectedResourceType(
     }
   }
 
+  const collectsMethod = findPhpMethod(content, "collects");
+  if (collectsMethod) {
+    const returnExpression = collectsMethod.body.match(/return\s+([^;]+);/)?.[1]?.trim();
+    const classLikeValue = returnExpression?.match(/^([A-Za-z0-9_\\]+)(?:::class)?$/)?.[1];
+    if (classLikeValue) {
+      return resolvePhpClassName(classLikeValue, fileContext);
+    }
+  }
+
   return inferLaravelCollectedResourceTypeFromName(classIndex, collectionType);
 }
 
