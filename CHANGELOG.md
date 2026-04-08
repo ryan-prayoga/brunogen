@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.4.7
+
+_Released: 2026-04-08_
+
+- Shrink the published npm package by externalizing runtime dependencies from the `tsup` build instead of bundling them twice into `dist/index.js` and `dist/cli.js`
+- Declare the Express AST parser as a runtime dependency and keep it lazy-loaded so consumer installs stay small while Express scanning still works in production
+- Add a publish-size guard to `npm run verify` so future changes fail fast if the npm tarball grows unexpectedly
+
 ## v0.4.6
 
 _Released: 2026-04-07_

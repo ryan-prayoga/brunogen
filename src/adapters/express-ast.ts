@@ -31,19 +31,17 @@ import {
   ResponseReturnPattern,
 } from "../core/ast-types";
 
-// Dynamic import — eslint is a devDependency, optional at runtime
+// Lazy-load the parser so non-Express flows do not pay startup cost.
 let parserModule: typeof import("@typescript-eslint/parser") | null = null;
-let ESLintParser: any = null;
 
-async function getParser() {
+function getParser() {
   if (!parserModule) {
     try {
       // eslint-disable-next-line @typescript-eslint/no-var-requires
-      parserModule = await import("@typescript-eslint/parser");
-      ESLintParser = parserModule.parse || (parserModule as any).parseForESLint?.parse;
+      parserModule = require("@typescript-eslint/parser");
     } catch {
       throw new Error(
-        "AST parser unavailable. Install @typescript-eslint/parser for Express scanning."
+        "AST parser unavailable. Reinstall brunogen to restore Express AST scanning."
       );
     }
   }
@@ -59,7 +57,7 @@ function parseWithEslint(
 
   // Use parseForESLint which returns { ast, services }
   try {
-    const mod = require("@typescript-eslint/parser");
+    const mod = getParser();
     if (mod.parseForESLint) {
       const { ast } = mod.parseForESLint(code, {
         filePath,
