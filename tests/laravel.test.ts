@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(21);
+    expect(artifacts.normalized.endpoints).toHaveLength(22);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -1247,6 +1247,55 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 22,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionResponseHeaders = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-response-headers" &&
+        endpoint.method === "get",
+    );
+    const collectionResponseHeadersMulti = collectionResponseHeaders?.responses.find(
+      (response) => response.statusCode === "207",
+    );
+    expect(collectionResponseHeaders?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionResponseHeadersMulti?.schema?.properties?.data?.type).toBe("array");
+    expect(
+      collectionResponseHeadersMulti?.schema?.properties?.data?.items?.properties?.id?.type,
+    ).toBe("integer");
+    expect(
+      collectionResponseHeadersMulti?.schema?.properties?.data?.items?.properties?.name?.type,
+    ).toBe("string");
+    expect(
+      collectionResponseHeadersMulti?.schema?.properties?.data?.items?.properties?.owner_email?.type,
+    ).toBe("string");
+    expect(
+      collectionResponseHeadersMulti?.schema?.properties?.meta?.properties?.per_page?.type,
+    ).toBe("integer");
+    expect(collectionResponseHeadersMulti?.example).toEqual({
+      data: [
+        {
+          id: 1,
+          name: "Jane Doe",
+          owner_email: "user@example.com",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 23,
         to: 1,
         total: 1,
       },

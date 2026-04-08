@@ -522,23 +522,38 @@ function parseLaravelResourceResponseChainStatement(
     .trim();
   let statusCode = "200";
 
-  if (rest.startsWith("->setStatusCode(")) {
-    const statusOpenParenIndex = rest.indexOf("(");
-    const statusArgsBlock =
-      statusOpenParenIndex >= 0
-        ? extractBalanced(rest, statusOpenParenIndex, "(", ")")
-        : null;
-    if (!statusArgsBlock) {
-      return undefined;
+  while (rest) {
+    if (rest.startsWith("->setStatusCode(")) {
+      const statusOpenParenIndex = rest.indexOf("(");
+      const statusArgsBlock =
+        statusOpenParenIndex >= 0
+          ? extractBalanced(rest, statusOpenParenIndex, "(", ")")
+          : null;
+      if (!statusArgsBlock) {
+        return undefined;
+      }
+
+      const statusArgs = splitTopLevel(statusArgsBlock.slice(1, -1), ",");
+      statusCode =
+        inferLaravelResourceStatusCode(statusArgs[0], exampleContext) ?? statusCode;
+      rest = rest.slice(statusOpenParenIndex + statusArgsBlock.length).trim();
+      continue;
     }
 
-    const statusArgs = splitTopLevel(statusArgsBlock.slice(1, -1), ",");
-    statusCode =
-      inferLaravelResourceStatusCode(statusArgs[0], exampleContext) ?? statusCode;
-    rest = rest.slice(statusOpenParenIndex + statusArgsBlock.length).trim();
-  }
+    if (rest.startsWith("->header(") || rest.startsWith("->withHeaders(")) {
+      const headerOpenParenIndex = rest.indexOf("(");
+      const headerArgsBlock =
+        headerOpenParenIndex >= 0
+          ? extractBalanced(rest, headerOpenParenIndex, "(", ")")
+          : null;
+      if (!headerArgsBlock) {
+        return undefined;
+      }
 
-  if (rest) {
+      rest = rest.slice(headerOpenParenIndex + headerArgsBlock.length).trim();
+      continue;
+    }
+
     return undefined;
   }
 

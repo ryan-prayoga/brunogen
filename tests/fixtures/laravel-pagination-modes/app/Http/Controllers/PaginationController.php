@@ -222,4 +222,19 @@ class PaginationController
             Project::query()->paginate(22, ['*'], 'page', $page)
         )->response()->setStatusCode(206);
     }
+
+    public function collectionResponseHeaders()
+    {
+        $page = request()->query('page');
+
+        return ProjectResource::collection(
+            Project::query()->paginate(23, ['*'], 'page', $page)
+        )
+            ->response()
+            ->header('X-Brunogen', '1')
+            ->withHeaders([
+                'X-Trace' => 'resource-response',
+            ])
+            ->setStatusCode(207);
+    }
 }
