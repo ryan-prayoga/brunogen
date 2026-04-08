@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(17);
+    expect(artifacts.normalized.endpoints).toHaveLength(18);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -1042,6 +1042,57 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 17,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionConditional = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-conditional" && endpoint.method === "get",
+    );
+    const collectionConditionalSuccess = collectionConditional?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionConditional?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionConditionalSuccess?.schema?.properties?.data).toBeUndefined();
+    expect(collectionConditionalSuccess?.schema?.properties?.conditional?.type).toBe("array");
+    expect(
+      collectionConditionalSuccess?.schema?.properties?.conditional?.items?.properties?.position?.type,
+    ).toBe("integer");
+    expect(
+      collectionConditionalSuccess?.schema?.properties?.conditional?.items?.properties?.identifier?.type,
+    ).toBe("integer");
+    expect(
+      collectionConditionalSuccess?.schema?.properties?.conditional?.items?.properties?.owner?.type,
+    ).toBe("string");
+    expect(
+      collectionConditionalSuccess?.schema?.properties?.conditional?.items?.properties?.label?.type,
+    ).toBe("string");
+    expect(collectionConditionalSuccess?.schema?.properties?.meta?.properties?.per_page?.type).toBe("integer");
+    expect(collectionConditionalSuccess?.example).toEqual({
+      conditional: [
+        {
+          position: 0,
+          identifier: 1,
+          owner: "user@example.com",
+          label: "conditional-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 18,
         to: 1,
         total: 1,
       },

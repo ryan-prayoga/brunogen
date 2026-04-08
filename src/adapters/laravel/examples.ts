@@ -323,6 +323,8 @@ function inferLaravelPassthroughCollectionChainExample(
 ): unknown | typeof unresolvedPhpExample {
   const passthroughCall = consumePhpLeadingSourceChainCall(rawValue, [
     "filter",
+    "when",
+    "unless",
     "values",
     "all",
     "toArray",
@@ -336,6 +338,14 @@ function inferLaravelPassthroughCollectionChainExample(
     const filterCall = consumePhpChainCall(currentRest, "filter");
     if (filterCall) {
       currentRest = filterCall.rest;
+      continue;
+    }
+
+    const conditionalCall =
+      consumePhpChainCall(currentRest, "when") ??
+      consumePhpChainCall(currentRest, "unless");
+    if (conditionalCall) {
+      currentRest = conditionalCall.rest;
       continue;
     }
 
