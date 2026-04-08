@@ -17,6 +17,7 @@ import {
   extractReturnArray,
   extractReturnStatements,
   findPhpMethod,
+  parsePhpString,
   resolvePhpClassRecord,
 } from "./shared";
 
@@ -187,11 +188,18 @@ function parseLaravelResourceReturnStatement(
     /^return\s+new\s+([A-Za-z0-9_\\]+)\s*\(/,
   );
   if (newResourceMatch?.[1]) {
+    const rawPayload = extractLaravelResourcePayloadExpression(statement);
+    const explicitAdditional = extractLaravelResourceAdditional(
+      statement,
+      exampleContext,
+    );
     return {
       resourceType: newResourceMatch[1],
       mode: "single",
-      additional: extractLaravelResourceAdditional(statement, exampleContext),
-      payload: extractLaravelResourcePayload(statement, exampleContext),
+      additional: explicitAdditional,
+      payload: rawPayload
+        ? parsePhpExampleValue(rawPayload, exampleContext)
+        : undefined,
     };
   }
 
@@ -199,11 +207,25 @@ function parseLaravelResourceReturnStatement(
     /^return\s+([A-Za-z0-9_\\]+)::(make|collection)\s*\(/,
   );
   if (factoryMatch?.[1] && factoryMatch[2]) {
+    const mode = factoryMatch[2] === "collection" ? "collection" : "single";
+    const rawPayload = extractLaravelResourcePayloadExpression(statement);
+    const explicitAdditional = extractLaravelResourceAdditional(
+      statement,
+      exampleContext,
+    );
+    const inferredCollection = mode === "collection" && rawPayload
+      ? inferLaravelPaginatorCollection(rawPayload, exampleContext)
+      : undefined;
+
     return {
       resourceType: factoryMatch[1],
-      mode: factoryMatch[2] === "collection" ? "collection" : "single",
-      additional: extractLaravelResourceAdditional(statement, exampleContext),
-      payload: extractLaravelResourcePayload(statement, exampleContext),
+      mode,
+      additional: mergeLaravelResourceAdditional(
+        inferredCollection?.additional,
+        explicitAdditional,
+      ),
+      payload: inferredCollection?.payload ??
+        (rawPayload ? parsePhpExampleValue(rawPayload, exampleContext) : undefined),
     };
   }
 
@@ -213,7 +235,7 @@ function parseLaravelResourceReturnStatement(
 function extractLaravelResourceAdditional(
   statement: string,
   exampleContext: PhpExampleContext,
-): unknown | undefined {
+): Record<string, unknown> | undefined {
   const additionalIndex = statement.indexOf("->additional(");
   if (additionalIndex < 0) {
     return undefined;
@@ -240,14 +262,13 @@ function extractLaravelResourceAdditional(
   return additional &&
     typeof additional === "object" &&
     !Array.isArray(additional)
-    ? additional
+    ? (additional as Record<string, unknown>)
     : undefined;
 }
 
-function extractLaravelResourcePayload(
+function extractLaravelResourcePayloadExpression(
   statement: string,
-  exampleContext: PhpExampleContext,
-): unknown | undefined {
+): string | undefined {
   const resourceIndex = statement.search(
     /return\s+(?:new\s+[A-Za-z0-9_\\]+|[A-Za-z0-9_\\]+::(?:make|collection))\s*\(/,
   );
@@ -265,7 +286,7 @@ function extractLaravelResourcePayload(
   }
 
   const firstArg = splitTopLevel(argsBlock.slice(1, -1), ",")[0]?.trim();
-  return firstArg ? parsePhpExampleValue(firstArg, exampleContext) : undefined;
+  return firstArg || undefined;
 }
 
 function extractResourceSelfExample(
@@ -283,4 +304,273 @@ function extractResourceSelfExample(
   }
 
   return undefined;
+}
+
+function inferLaravelPaginatorCollection(
+  rawPayload: string,
+  exampleContext: PhpExampleContext,
+):
+  | {
+      payload: unknown[];
+      additional: Record<string, unknown>;
+    }
+  | undefined {
+  const resolvedExpression = resolveLaravelPayloadExpression(
+    rawPayload,
+    exampleContext,
+  );
+  if (!resolvedExpression) {
+    return undefined;
+  }
+
+  const paginatorCall = extractLaravelPaginatorCall(resolvedExpression);
+  if (!paginatorCall) {
+    return undefined;
+  }
+
+  const args = splitTopLevel(paginatorCall.argsBlock.slice(1, -1), ",");
+  const perPage = coercePositiveInteger(
+    parsePhpExampleValue(args[0] ?? "", exampleContext),
+  ) ?? 15;
+
+  switch (paginatorCall.method) {
+    case "paginate":
+      return {
+        payload: [],
+        additional: buildLengthAwarePaginationExample(
+          perPage,
+          args[2],
+          args[3],
+          exampleContext,
+        ),
+      };
+    case "simplePaginate":
+      return {
+        payload: [],
+        additional: buildSimplePaginationExample(
+          perPage,
+          args[2],
+          args[3],
+          exampleContext,
+        ),
+      };
+    case "cursorPaginate":
+      return {
+        payload: [],
+        additional: buildCursorPaginationExample(
+          perPage,
+          args[2],
+        ),
+      };
+    default:
+      return undefined;
+  }
+}
+
+function resolveLaravelPayloadExpression(
+  rawPayload: string,
+  exampleContext: PhpExampleContext,
+  seenVariables = new Set<string>(),
+): string | undefined {
+  const trimmed = rawPayload.trim();
+  if (!trimmed) {
+    return undefined;
+  }
+
+  const variableMatch = trimmed.match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (!variableMatch?.[1]) {
+    return trimmed;
+  }
+
+  if (seenVariables.has(variableMatch[1])) {
+    return undefined;
+  }
+
+  seenVariables.add(variableMatch[1]);
+  const assignedExpression = exampleContext.assignments.get(variableMatch[1]);
+  if (!assignedExpression) {
+    return undefined;
+  }
+
+  return resolveLaravelPayloadExpression(
+    assignedExpression,
+    exampleContext,
+    seenVariables,
+  ) ?? assignedExpression.trim();
+}
+
+function extractLaravelPaginatorCall(
+  expression: string,
+):
+  | {
+      method: "paginate" | "simplePaginate" | "cursorPaginate";
+      argsBlock: string;
+    }
+  | undefined {
+  const paginatorMatches = [
+    ...expression.matchAll(/->(paginate|simplePaginate|cursorPaginate)\s*\(/g),
+  ];
+  const lastMatch = paginatorMatches.at(-1);
+  if (!lastMatch?.[1] || lastMatch.index === undefined) {
+    return undefined;
+  }
+
+  const method = lastMatch[1] as
+    | "paginate"
+    | "simplePaginate"
+    | "cursorPaginate";
+
+  const openParenIndex = expression.indexOf(
+    "(",
+    lastMatch.index + lastMatch[0].length - 1,
+  );
+  const argsBlock =
+    openParenIndex >= 0
+      ? extractBalanced(expression, openParenIndex, "(", ")")
+      : null;
+  if (!argsBlock) {
+    return undefined;
+  }
+
+  return {
+    method,
+    argsBlock,
+  };
+}
+
+function buildLengthAwarePaginationExample(
+  perPage: number,
+  rawPageName: string | undefined,
+  rawPageValue: string | undefined,
+  exampleContext: PhpExampleContext,
+): Record<string, unknown> {
+  const currentPage = parsePaginatorPosition(rawPageValue, exampleContext, 1);
+  const pageName = parsePhpString(rawPageName ?? "") ?? "page";
+  const total = 1;
+  const lastPage = Math.max(currentPage, Math.ceil(total / perPage));
+
+  return {
+    meta: {
+      current_page: currentPage,
+      from: 1,
+      last_page: lastPage,
+      per_page: perPage,
+      to: total,
+      total,
+    },
+    links: {
+      first: buildPaginatorLink(pageName, 1),
+      last: buildPaginatorLink(pageName, lastPage),
+      prev: currentPage > 1
+        ? buildPaginatorLink(pageName, currentPage - 1)
+        : null,
+      next: currentPage < lastPage
+        ? buildPaginatorLink(pageName, currentPage + 1)
+        : null,
+    },
+  };
+}
+
+function buildSimplePaginationExample(
+  perPage: number,
+  rawPageName: string | undefined,
+  rawPageValue: string | undefined,
+  exampleContext: PhpExampleContext,
+): Record<string, unknown> {
+  const currentPage = parsePaginatorPosition(rawPageValue, exampleContext, 1);
+  const pageName = parsePhpString(rawPageName ?? "") ?? "page";
+
+  return {
+    meta: {
+      current_page: currentPage,
+      from: 1,
+      per_page: perPage,
+      to: 1,
+    },
+    links: {
+      prev: currentPage > 1
+        ? buildPaginatorLink(pageName, currentPage - 1)
+        : null,
+      next: null,
+    },
+  };
+}
+
+function buildCursorPaginationExample(
+  perPage: number,
+  rawCursorName: string | undefined,
+): Record<string, unknown> {
+  const cursorName = parsePhpString(rawCursorName ?? "") ?? "cursor";
+
+  return {
+    meta: {
+      per_page: perPage,
+    },
+    links: {
+      prev: null,
+      next: `?${cursorName}=next_cursor`,
+    },
+  };
+}
+
+function parsePaginatorPosition(
+  rawValue: string | undefined,
+  exampleContext: PhpExampleContext,
+  fallback: number,
+): number {
+  const parsedValue = coercePositiveInteger(
+    parsePhpExampleValue(rawValue ?? "", exampleContext),
+  );
+  return parsedValue ?? fallback;
+}
+
+function buildPaginatorLink(name: string, value: number): string {
+  return `?${name}=${value}`;
+}
+
+function coercePositiveInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    return undefined;
+  }
+
+  const normalized = Math.floor(value);
+  return normalized > 0 ? normalized : undefined;
+}
+
+function mergeLaravelResourceAdditional(
+  base: Record<string, unknown> | undefined,
+  override: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!base) {
+    return override;
+  }
+
+  if (!override) {
+    return base;
+  }
+
+  const merged = { ...base };
+
+  for (const [key, value] of Object.entries(override)) {
+    if (
+      isPlainLaravelResourceObject(merged[key]) &&
+      isPlainLaravelResourceObject(value)
+    ) {
+      merged[key] = {
+        ...(merged[key] as Record<string, unknown>),
+        ...value,
+      };
+      continue;
+    }
+
+    merged[key] = value;
+  }
+
+  return merged;
+}
+
+function isPlainLaravelResourceObject(
+  value: unknown,
+): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }

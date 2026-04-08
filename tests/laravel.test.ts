@@ -134,21 +134,21 @@ describe("Laravel adapter", () => {
       data: [
         {
           id: 1,
-          name: "Launchpad",
-          owner_email: "owner@example.com",
-        },
-        {
-          id: 2,
-          name: "Atlas",
-          owner_email: "atlas@example.com",
+          name: "Jane Doe",
+          owner_email: "user@example.com",
         },
       ],
       meta: {
         current_page: 1,
+        from: 1,
+        last_page: 1,
         per_page: 15,
-        total: 2,
+        to: 1,
+        total: 1,
       },
       links: {
+        first: "?page=1",
+        last: "?page=1",
         next: null,
         prev: null,
       },

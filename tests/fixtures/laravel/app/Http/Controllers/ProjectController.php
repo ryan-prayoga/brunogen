@@ -11,28 +11,9 @@ class ProjectController extends Controller
     {
         $page = request()->query('page');
 
-        return ProjectResource::collection([
-            (object) [
-                'id' => 1,
-                'name' => 'Launchpad',
-                'owner_email' => 'owner@example.com',
-            ],
-            (object) [
-                'id' => 2,
-                'name' => 'Atlas',
-                'owner_email' => 'atlas@example.com',
-            ],
-        ])->additional([
-            'meta' => [
-                'current_page' => $page ?? 1,
-                'per_page' => 15,
-                'total' => 2,
-            ],
-            'links' => [
-                'next' => null,
-                'prev' => null,
-            ],
-        ]);
+        return ProjectResource::collection(
+            Project::query()->paginate(15, ['*'], 'page', $page)
+        );
     }
 
     public function show(Request $request)
