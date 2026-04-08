@@ -19,4 +19,5 @@ Route::prefix('api')->group(function () {
     Route::get('/projects/collection-indexed', [PaginationController::class, 'collectionIndexed']);
     Route::get('/projects/collection-direct', [PaginationController::class, 'collectionDirect']);
     Route::get('/projects/collection-assigned', [PaginationController::class, 'collectionAssigned']);
+    Route::get('/projects/collection-prefiltered', [PaginationController::class, 'collectionPreFiltered']);
 });

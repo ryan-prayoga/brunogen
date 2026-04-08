@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(15);
+    expect(artifacts.normalized.endpoints).toHaveLength(16);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -940,6 +940,57 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 15,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionPreFiltered = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-prefiltered" && endpoint.method === "get",
+    );
+    const collectionPreFilteredSuccess = collectionPreFiltered?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionPreFiltered?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionPreFilteredSuccess?.schema?.properties?.data).toBeUndefined();
+    expect(collectionPreFilteredSuccess?.schema?.properties?.prefiltered?.type).toBe("array");
+    expect(
+      collectionPreFilteredSuccess?.schema?.properties?.prefiltered?.items?.properties?.position?.type,
+    ).toBe("integer");
+    expect(
+      collectionPreFilteredSuccess?.schema?.properties?.prefiltered?.items?.properties?.identifier?.type,
+    ).toBe("integer");
+    expect(
+      collectionPreFilteredSuccess?.schema?.properties?.prefiltered?.items?.properties?.owner?.type,
+    ).toBe("string");
+    expect(
+      collectionPreFilteredSuccess?.schema?.properties?.prefiltered?.items?.properties?.label?.type,
+    ).toBe("string");
+    expect(collectionPreFilteredSuccess?.schema?.properties?.meta?.properties?.per_page?.type).toBe("integer");
+    expect(collectionPreFilteredSuccess?.example).toEqual({
+      prefiltered: [
+        {
+          position: 0,
+          identifier: 1,
+          owner: "user@example.com",
+          label: "prefiltered-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 16,
         to: 1,
         total: 1,
       },

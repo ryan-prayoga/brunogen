@@ -308,12 +308,63 @@ function inferLaravelCollectionSourceExample(
   rawValue: string,
   context?: PhpExampleContext,
 ): unknown | typeof unresolvedPhpExample {
-  const collectCall = consumePhpCall(rawValue.trim(), "collect");
+  const trimmed = rawValue.trim();
+  const collectCall = consumePhpCall(trimmed, "collect");
   if (!collectCall?.args || collectCall.rest.trim()) {
-    return unresolvedPhpExample;
+    return inferLaravelPassthroughCollectionChainExample(trimmed, context);
   }
 
   return resolvePhpExampleValue(collectCall.args, context);
+}
+
+function inferLaravelPassthroughCollectionChainExample(
+  rawValue: string,
+  context?: PhpExampleContext,
+): unknown | typeof unresolvedPhpExample {
+  const passthroughCall = consumePhpLeadingSourceChainCall(rawValue, [
+    "filter",
+    "values",
+    "all",
+    "toArray",
+  ]);
+  if (!passthroughCall) {
+    return unresolvedPhpExample;
+  }
+
+  let currentRest = `->${passthroughCall.name}(${passthroughCall.args})${passthroughCall.rest}`;
+  while (currentRest.trim()) {
+    const filterCall = consumePhpChainCall(currentRest, "filter");
+    if (filterCall) {
+      currentRest = filterCall.rest;
+      continue;
+    }
+
+    const valuesCall = consumePhpChainCall(currentRest, "values");
+    if (valuesCall) {
+      if (valuesCall.args.trim()) {
+        return unresolvedPhpExample;
+      }
+
+      currentRest = valuesCall.rest;
+      continue;
+    }
+
+    const finalizeCall =
+      consumePhpChainCall(currentRest, "all") ??
+      consumePhpChainCall(currentRest, "toArray");
+    if (finalizeCall) {
+      if (finalizeCall.args.trim()) {
+        return unresolvedPhpExample;
+      }
+
+      currentRest = finalizeCall.rest;
+      continue;
+    }
+
+    return unresolvedPhpExample;
+  }
+
+  return resolvePhpExampleValue(passthroughCall.sourceExpression, context);
 }
 
 function inferLaravelRequestAccessorExample(
@@ -504,7 +555,7 @@ function consumePhpCall(
 function consumePhpLeadingSourceChainCall(
   input: string,
   names: string[],
-): { sourceExpression: string; args: string; rest: string } | null {
+): { sourceExpression: string; name: string; args: string; rest: string } | null {
   const trimmed = input.trim();
   const chainMatch = findPhpTopLevelChainCall(trimmed, names);
   if (!chainMatch?.name) {
@@ -523,6 +574,7 @@ function consumePhpLeadingSourceChainCall(
 
   return {
     sourceExpression,
+    name: chainMatch.name,
     args: chainCall.args,
     rest: chainCall.rest,
   };
