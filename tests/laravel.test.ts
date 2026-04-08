@@ -246,7 +246,7 @@ describe("Laravel adapter", () => {
     );
 
     expect(artifacts.normalized.framework).toBe("laravel");
-    expect(artifacts.normalized.endpoints).toHaveLength(14);
+    expect(artifacts.normalized.endpoints).toHaveLength(15);
 
     const simple = artifacts.normalized.endpoints.find(
       (endpoint) => endpoint.path === "/api/projects/simple" && endpoint.method === "get",
@@ -889,6 +889,57 @@ describe("Laravel adapter", () => {
         from: 1,
         last_page: 1,
         per_page: 14,
+        to: 1,
+        total: 1,
+      },
+      links: {
+        first: "?page=1",
+        last: "?page=1",
+        prev: null,
+        next: null,
+      },
+    });
+
+    const collectionAssigned = artifacts.normalized.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/projects/collection-assigned" && endpoint.method === "get",
+    );
+    const collectionAssignedSuccess = collectionAssigned?.responses.find(
+      (response) => response.statusCode === "200",
+    );
+    expect(collectionAssigned?.parameters).toContainEqual(expect.objectContaining({
+      name: "page",
+      in: "query",
+    }));
+    expect(collectionAssignedSuccess?.schema?.properties?.data).toBeUndefined();
+    expect(collectionAssignedSuccess?.schema?.properties?.assigned?.type).toBe("array");
+    expect(
+      collectionAssignedSuccess?.schema?.properties?.assigned?.items?.properties?.position?.type,
+    ).toBe("integer");
+    expect(
+      collectionAssignedSuccess?.schema?.properties?.assigned?.items?.properties?.identifier?.type,
+    ).toBe("integer");
+    expect(
+      collectionAssignedSuccess?.schema?.properties?.assigned?.items?.properties?.owner?.type,
+    ).toBe("string");
+    expect(
+      collectionAssignedSuccess?.schema?.properties?.assigned?.items?.properties?.label?.type,
+    ).toBe("string");
+    expect(collectionAssignedSuccess?.schema?.properties?.meta?.properties?.per_page?.type).toBe("integer");
+    expect(collectionAssignedSuccess?.example).toEqual({
+      assigned: [
+        {
+          position: 0,
+          identifier: 1,
+          owner: "user@example.com",
+          label: "assigned-project",
+        },
+      ],
+      meta: {
+        current_page: 1,
+        from: 1,
+        last_page: 1,
+        per_page: 15,
         to: 1,
         total: 1,
       },

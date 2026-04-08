@@ -202,6 +202,14 @@ function resolvePhpExampleValue(
     return resolvePhpVariableExample(directVariableMatch[1], context);
   }
 
+  const collectionSourceExample = inferLaravelCollectionSourceExample(
+    value,
+    context,
+  );
+  if (collectionSourceExample !== unresolvedPhpExample) {
+    return collectionSourceExample;
+  }
+
   const requestAccessorExample = inferLaravelRequestAccessorExample(value);
   if (requestAccessorExample !== unresolvedPhpExample) {
     return requestAccessorExample;
@@ -294,6 +302,18 @@ function resolvePhpVariableExample(
   context.resolving.delete(variableName);
   context.cache.set(variableName, resolved);
   return resolved;
+}
+
+function inferLaravelCollectionSourceExample(
+  rawValue: string,
+  context?: PhpExampleContext,
+): unknown | typeof unresolvedPhpExample {
+  const collectCall = consumePhpCall(rawValue.trim(), "collect");
+  if (!collectCall?.args || collectCall.rest.trim()) {
+    return unresolvedPhpExample;
+  }
+
+  return resolvePhpExampleValue(collectCall.args, context);
 }
 
 function inferLaravelRequestAccessorExample(
