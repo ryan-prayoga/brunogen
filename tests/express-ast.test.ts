@@ -147,4 +147,25 @@ describe("Express AST adapter", () => {
     expect(reports?.auth.type).toBe("bearer");
     expect(adminStats?.auth.type).toBe("bearer");
   });
+
+  it("detects single-line router.route chains", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-route-chain"),
+      "acme/express-route-chain",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    const reports = project.endpoints.filter(
+      (endpoint) => endpoint.path === "/api/reports",
+    );
+
+    expect(reports.map((endpoint) => endpoint.method).sort()).toEqual([
+      "get",
+      "post",
+    ]);
+    expect(reports.every((endpoint) => endpoint.auth.type === "bearer")).toBe(
+      true,
+    );
+  });
 });

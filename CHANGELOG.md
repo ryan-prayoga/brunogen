@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Improve experimental Express AST route-chain detection for same-line `router.route(...).get(...).post(...)` declarations
+
 ## v0.4.9
 
 _Released: 2026-04-08_

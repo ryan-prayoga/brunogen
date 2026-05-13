@@ -402,51 +402,49 @@ function parseRoutersAst(
   for (const router of routers) {
     if (router.filePath !== file.filePath) continue;
 
-    // Pre-scan: extract chain routes (router.route().get().put().delete())
-    // AST nesting makes this pattern very difficult to parse properly,
-    // so we use a regex pre-scan for this specific pattern.
-    // Pre-scan: extract chain routes (router.route().get().put().delete())
-    // We use simple text-based line scanning — avoids regex escaping hell
+    // Pre-scan: extract chain routes (router.route().get().put().delete()).
+    // AST nesting makes this pattern difficult to parse, so scan the full chain text.
     const text = file.content;
     const fileLines = text.split("\n");
     for (let ln = 0; ln < fileLines.length; ln++) {
       const trimmed = fileLines[ln].trim();
-      // Match: routerName.route("path") or routerName.route('path')
       const pathMatch = trimmed.match(new RegExp("^" + escapeRx(router.name) + "\\.route\\s*\\(\\s*([\\x27\\x22\\x60])([^\\x27\\x22\\x60\\s]+)\\1"));
       if (!pathMatch) continue;
+
       const routePath = pathMatch[2];
-
-      // Look ahead for chained method calls on following lines
+      const chainLines = [trimmed];
       let methodLine = ln + 1;
-      while (methodLine < fileLines.length) {
+      while (methodLine < fileLines.length && !chainLines.join(" ").includes(";")) {
         const methodTrimmed = fileLines[methodLine].trim();
-        if (methodTrimmed === ";" || methodTrimmed === "") break;
+        if (methodTrimmed === "") break;
         if (!methodTrimmed.startsWith(".")) break;
-
-        const methodMatch = methodTrimmed.match(/^\.(get|post|put|patch|delete|head|options)\s*\(([^)]*)\)/);
-        if (methodMatch) {
-          const method = methodMatch[1];
-          const argsText = methodMatch[2].trim();
-          const parts = splitTopLevel(argsText, ",").map((s) => s.trim()).filter(Boolean);
-          let handler = "anonymous";
-          const middleware: string[] = [];
-          if (parts.length > 0) {
-            const hMatch = parts[parts.length - 1].match(/([a-zA-Z_$]\w*)/);
-            if (hMatch) handler = hMatch[1];
-            for (let i = 0; i < parts.length - 1; i++) {
-              middleware.push(...extractMiddlewareNamesFromText(parts[i]));
-            }
-          }
-          router.routes.push({
-            filePath: file.filePath,
-            line: ln + 1,
-            method: method as HttpMethod,
-            path: routePath,
-            middleware,
-            handler,
-          });
-        }
+        chainLines.push(methodTrimmed);
         methodLine++;
+      }
+
+      const chainText = chainLines.join(" ");
+      const methodPattern = /\.(get|post|put|patch|delete|head|options)\s*\(([^)]*)\)/g;
+      for (const methodMatch of chainText.matchAll(methodPattern)) {
+        const method = methodMatch[1];
+        const argsText = methodMatch[2].trim();
+        const parts = splitTopLevel(argsText, ",").map((s) => s.trim()).filter(Boolean);
+        let handler = "anonymous";
+        const middleware: string[] = [];
+        if (parts.length > 0) {
+          const hMatch = parts[parts.length - 1].match(/([a-zA-Z_$]\w*)/);
+          if (hMatch) handler = hMatch[1];
+          for (let i = 0; i < parts.length - 1; i++) {
+            middleware.push(...extractMiddlewareNamesFromText(parts[i]));
+          }
+        }
+        router.routes.push({
+          filePath: file.filePath,
+          line: ln + 1,
+          method: method as HttpMethod,
+          path: routePath,
+          middleware,
+          handler,
+        });
       }
     }
 

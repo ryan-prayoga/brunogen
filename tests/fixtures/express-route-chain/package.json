@@ -1,0 +1,7 @@
+{
+  "name": "acme/express-route-chain",
+  "private": true,
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
