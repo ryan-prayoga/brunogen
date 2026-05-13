@@ -88,4 +88,50 @@ describe("Generation pipeline", () => {
       }
     }
   });
+
+  it("falls back to the Express regex scanner when experimental AST parsing finds no parsable files", async () => {
+    const workspace = await fs.mkdtemp(path.join(os.tmpdir(), "brunogen-express-ast-fallback-"));
+    const previousAstFlag = process.env.BRUNOGEN_EXPERIMENTAL_EXPRESS_AST;
+    const originalStderrWrite = process.stderr.write;
+    const stderr: string[] = [];
+    process.env.BRUNOGEN_EXPERIMENTAL_EXPRESS_AST = "1";
+    process.stderr.write = ((chunk: string | Uint8Array) => {
+      stderr.push(String(chunk));
+      return true;
+    }) as typeof process.stderr.write;
+
+    try {
+      await fs.writeFile(
+        path.join(workspace, "package.json"),
+        JSON.stringify({ dependencies: { express: "^4.18.0" } }),
+        "utf8",
+      );
+      await fs.writeFile(
+        path.join(workspace, "app.js"),
+        `const express = require("express");
+const app = express();
+app.get("/health", (req, res) => res.json({ ok: true }));
+module.exports = app;
+if (
+`,
+        "utf8",
+      );
+
+      const artifacts = await generateArtifacts(workspace, defaultConfig());
+
+      expect(artifacts.normalized.endpoints).toContainEqual(expect.objectContaining({
+        method: "get",
+        path: "/health",
+      }));
+      expect(stderr.join("")).toContain("falling back to regex parser");
+    } finally {
+      process.stderr.write = originalStderrWrite;
+      if (previousAstFlag === undefined) {
+        delete process.env.BRUNOGEN_EXPERIMENTAL_EXPRESS_AST;
+      } else {
+        process.env.BRUNOGEN_EXPERIMENTAL_EXPRESS_AST = previousAstFlag;
+      }
+      await fs.rm(workspace, { recursive: true, force: true });
+    }
+  });
 });
