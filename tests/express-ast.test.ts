@@ -2,6 +2,7 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { scanExpressProject } from "../src/adapters/express";
 import { scanExpressProjectAst } from "../src/adapters/express-ast";
 import { defaultConfig } from "../src/core/config";
 import { fixturePath } from "./helpers";
@@ -148,24 +149,24 @@ describe("Express AST adapter", () => {
     expect(adminStats?.auth.type).toBe("bearer");
   });
 
-  it("detects single-line router.route chains", async () => {
-    const project = await scanExpressProjectAst(
-      fixturePath("express-route-chain"),
-      "acme/express-route-chain",
-      "0.0.0",
-      defaultConfig(),
-    );
-
-    const reports = project.endpoints.filter(
-      (endpoint) => endpoint.path === "/api/reports",
-    );
-
-    expect(reports.map((endpoint) => endpoint.method).sort()).toEqual([
-      "get",
-      "post",
+  it("matches legacy output for single-line router.route chains", async () => {
+    const root = fixturePath("express-route-chain");
+    const config = defaultConfig();
+    const [astProject, legacyProject] = await Promise.all([
+      scanExpressProjectAst(root, "acme/express-route-chain", "0.0.0", config),
+      scanExpressProject(root, "acme/express-route-chain", "0.0.0", config),
     ]);
-    expect(reports.every((endpoint) => endpoint.auth.type === "bearer")).toBe(
-      true,
-    );
+
+    const summarizeReports = (project: typeof astProject) =>
+      project.endpoints
+        .filter((endpoint) => endpoint.path === "/api/reports")
+        .map((endpoint) => ({
+          auth: endpoint.auth.type,
+          method: endpoint.method,
+          responses: endpoint.responses.map((response) => response.statusCode),
+        }))
+        .sort((a, b) => a.method.localeCompare(b.method));
+
+    expect(summarizeReports(astProject)).toEqual(summarizeReports(legacyProject));
   });
 });
