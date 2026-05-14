@@ -169,4 +169,27 @@ describe("Express AST adapter", () => {
 
     expect(summarizeReports(astProject)).toEqual(summarizeReports(legacyProject));
   });
+
+  it("resolves namespace imports that point at aliased router exports", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-export-alias"),
+      "acme/express-ast-export-alias",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/api/users",
+        operationId: "listUsers",
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/users",
+      }),
+    );
+  });
 });

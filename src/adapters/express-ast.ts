@@ -224,6 +224,30 @@ function parseExportsAst(file: ExpressFile): FileExports {
   let defaultExpression: string | undefined;
 
   for (const node of walkAst(file.ast)) {
+    if (node.type === "ExportNamedDeclaration") {
+      const declaration = node.declaration;
+
+      if (declaration?.type === "FunctionDeclaration" && declaration.id?.name) {
+        named.set(declaration.id.name, declaration.id.name);
+      }
+
+      if (declaration?.type === "VariableDeclaration") {
+        for (const decl of declaration.declarations ?? []) {
+          if (decl.id?.type === "Identifier") {
+            named.set(decl.id.name, decl.id.name);
+          }
+        }
+      }
+
+      for (const specifier of node.specifiers ?? []) {
+        const localName = getPropertyName(specifier.local);
+        const exportedName = getPropertyName(specifier.exported);
+        if (localName && exportedName) {
+          named.set(exportedName, localName);
+        }
+      }
+    }
+
     // export function foo() {}
     if (node.type === "FunctionDeclaration" && node.export) {
       named.set(node.id.name, node.id.name);
@@ -620,6 +644,23 @@ function resolveRouterReference(
   const targetName = getTargetName(node);
   if (!targetName) {
     return null;
+  }
+
+  const importedMemberMatch = targetName.match(
+    /^([A-Za-z_$][A-Za-z0-9_$]*)\.([A-Za-z_$][A-Za-z0-9_$]*)$/,
+  );
+  if (importedMemberMatch?.[1] && importedMemberMatch[2]) {
+    const binding = fileImports.get(importedMemberMatch[1]);
+    if (binding?.kind === "namespace" && binding.sourceFile) {
+      const sourceExports = exportsMap.get(binding.sourceFile);
+      const exportedName =
+        sourceExports?.named.get(importedMemberMatch[2]) ??
+        importedMemberMatch[2];
+      const targetFile = fileMap.get(binding.sourceFile);
+      if (targetFile && declaresRouterSymbol(targetFile, exportedName)) {
+        return `${binding.sourceFile}#${exportedName}`;
+      }
+    }
   }
 
   const localRouter = routers.find(

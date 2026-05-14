@@ -2,7 +2,13 @@
 
 ## Unreleased
 
+## v0.4.10
+
+_Released: 2026-05-14_
+
 - Improve experimental Express AST route-chain detection for same-line `router.route(...).get(...).post(...)` declarations
+- Resolve Express AST mounted routers imported through namespace objects and aliased named exports.
+- Sync AST migration notes and reference docs with the current experimental Express AST pipeline behavior.
 
 ## v0.4.9
 

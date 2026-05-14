@@ -1,0 +1,6 @@
+{
+  "name": "acme/express-ast-export-alias",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
