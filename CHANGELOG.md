@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Resolve more experimental Express AST router mounts from default exports and CommonJS object exports.
+
 ## v0.4.10
 
 _Released: 2026-05-14_

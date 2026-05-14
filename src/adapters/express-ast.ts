@@ -280,6 +280,11 @@ function parseExportsAst(file: ExpressFile): FileExports {
         const objName = getTargetName(left.object);
         if (objName === "module" && getPropertyName(left.property) === "exports") {
           defaultExpression = getTargetName(node.right) ?? undefined;
+          if (node.right?.type === "ObjectExpression") {
+            for (const [exportedName, localName] of parseObjectExportMap(node.right)) {
+              named.set(exportedName, localName);
+            }
+          }
         }
         if (objName === "exports") {
           const propName = getPropertyName(left.property);
@@ -651,11 +656,17 @@ function resolveRouterReference(
   );
   if (importedMemberMatch?.[1] && importedMemberMatch[2]) {
     const binding = fileImports.get(importedMemberMatch[1]);
-    if (binding?.kind === "namespace" && binding.sourceFile) {
+    if (
+      (binding?.kind === "namespace" || binding?.kind === "default") &&
+      binding.sourceFile
+    ) {
       const sourceExports = exportsMap.get(binding.sourceFile);
       const exportedName =
         sourceExports?.named.get(importedMemberMatch[2]) ??
-        importedMemberMatch[2];
+        (binding.kind === "namespace" ? importedMemberMatch[2] : undefined);
+      if (!exportedName) {
+        return null;
+      }
       const targetFile = fileMap.get(binding.sourceFile);
       if (targetFile && declaresRouterSymbol(targetFile, exportedName)) {
         return `${binding.sourceFile}#${exportedName}`;
@@ -692,6 +703,24 @@ function resolveRouterReference(
   }
 
   return `${importBinding.sourceFile}#${exportedName}`;
+}
+
+function parseObjectExportMap(objectExpression: any): Array<[string, string]> {
+  const results: Array<[string, string]> = [];
+
+  for (const property of objectExpression.properties ?? []) {
+    if (!property || property.type === "SpreadElement") {
+      continue;
+    }
+
+    const exportedName = getPropertyName(property.key);
+    const localName = getTargetName(property.value) ?? exportedName;
+    if (exportedName && localName) {
+      results.push([exportedName, localName]);
+    }
+  }
+
+  return results;
 }
 
 // ─── Module resolution ─────────────────────────────────────────

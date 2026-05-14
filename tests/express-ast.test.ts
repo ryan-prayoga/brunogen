@@ -192,4 +192,62 @@ describe("Express AST adapter", () => {
       }),
     );
   });
+
+  it("resolves routers mounted from default exports", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-default-export"),
+      "acme/express-ast-default-export",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/api/reports",
+        operationId: "listReports",
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/reports",
+      }),
+    );
+  });
+
+  it("resolves CommonJS object exports and require member router mounts", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-cjs-exports"),
+      "acme/express-ast-cjs-exports",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "get",
+          path: "/api/users",
+          operationId: "listUsers",
+        }),
+        expect.objectContaining({
+          method: "get",
+          path: "/admin/users",
+          operationId: "listAdmins",
+        }),
+        expect.objectContaining({
+          method: "get",
+          path: "/default/status",
+          operationId: "getStatus",
+        }),
+      ]),
+    );
+    expect(project.endpoints).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ path: "/users" }),
+        expect.objectContaining({ path: "/status" }),
+      ]),
+    );
+  });
 });

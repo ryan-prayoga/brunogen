@@ -1,0 +1,6 @@
+{
+  "name": "acme/express-ast-cjs-exports",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}
