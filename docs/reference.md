@@ -419,7 +419,7 @@ example {
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
 | Bruno export | Supported | Collection, requests, environments, baseline auth blocks, and response `example {}` blocks |
 | Express route scanning | Experimental | Handles `express()` / `Router()`, `use()` mounts, and `route()` chains |
-| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; falls back to the default Express scanner if AST scanning fails |
+| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; resolves common static import/export router mounts including default, CommonJS, barrel re-export, and repeated mount patterns; falls back to the default Express scanner if AST scanning fails |
 | Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers and local response helpers |
 | Go Fiber scanning | Experimental | Route and request inference are heuristic |
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
@@ -435,7 +435,7 @@ example {
 - Brunogen is optimized for conventional code, not heavily dynamic or meta-programmed applications.
 - Laravel and the default Express scanner are regex-driven rather than full AST analysis, so unusual declarations can still be missed.
 - Express AST scanning is available as an experimental opt-in path, but it still reuses the default handler inference and should be treated as best-effort.
-- Complex route factories, indirect exports, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
+- Complex route factories, dynamic imports, computed paths, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects, and conditional validation are only partially inferred.
 - Laravel response inference is strongest for controller-local patterns and common resource usage; cross-class service wrappers and highly dynamic composition are still best-effort.
 - Express request and response inference is strongest for direct `req.body` / `req.query` / `req.headers` access and local `res.*()` helper wrappers.

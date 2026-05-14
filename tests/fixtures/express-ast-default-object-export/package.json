@@ -1,0 +1,6 @@
+{
+  "name": "acme/express-ast-default-object-export",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}

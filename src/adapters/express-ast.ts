@@ -144,9 +144,17 @@ interface ImportBinding {
   importedName?: string;
 }
 
+interface ReExportBinding {
+  sourceFile: string;
+  importedName: string;
+}
+
 interface FileExports {
   defaultExpression?: string;
+  defaultObject: Map<string, string>;
   named: Map<string, string>;
+  reExports: Map<string, ReExportBinding>;
+  allReExports: string[];
 }
 
 function parseImportsAst(
@@ -219,12 +227,31 @@ function parseImportsAst(
   return bindings;
 }
 
-function parseExportsAst(file: ExpressFile): FileExports {
+function parseExportsAst(
+  file: ExpressFile,
+  knownFiles: Set<string>,
+): FileExports {
   const named = new Map<string, string>();
+  const defaultObject = new Map<string, string>();
+  const reExports = new Map<string, ReExportBinding>();
+  const allReExports: string[] = [];
   let defaultExpression: string | undefined;
 
   for (const node of walkAst(file.ast)) {
     if (node.type === "ExportNamedDeclaration") {
+      const source = getStringValue(node.source);
+      if (source?.startsWith(".")) {
+        const sourceFile = resolveLocalModulePath(file.filePath, source, knownFiles) ?? source;
+        for (const specifier of node.specifiers ?? []) {
+          const importedName = getPropertyName(specifier.local);
+          const exportedName = getPropertyName(specifier.exported);
+          if (importedName && exportedName) {
+            reExports.set(exportedName, { sourceFile, importedName });
+          }
+        }
+        continue;
+      }
+
       const declaration = node.declaration;
 
       if (declaration?.type === "FunctionDeclaration" && declaration.id?.name) {
@@ -245,6 +272,15 @@ function parseExportsAst(file: ExpressFile): FileExports {
         if (localName && exportedName) {
           named.set(exportedName, localName);
         }
+      }
+    }
+
+    if (node.type === "ExportAllDeclaration") {
+      const source = getStringValue(node.source);
+      if (source?.startsWith(".")) {
+        allReExports.push(
+          resolveLocalModulePath(file.filePath, source, knownFiles) ?? source,
+        );
       }
     }
 
@@ -270,6 +306,10 @@ function parseExportsAst(file: ExpressFile): FileExports {
         named.set(decl.id.name, decl.id.name);
       } else if (decl?.type === "Identifier") {
         defaultExpression = decl.name;
+      } else if (decl?.type === "ObjectExpression") {
+        for (const [exportedName, localName] of parseObjectExportMap(decl)) {
+          defaultObject.set(exportedName, localName);
+        }
       }
     }
 
@@ -283,6 +323,7 @@ function parseExportsAst(file: ExpressFile): FileExports {
           if (node.right?.type === "ObjectExpression") {
             for (const [exportedName, localName] of parseObjectExportMap(node.right)) {
               named.set(exportedName, localName);
+              defaultObject.set(exportedName, localName);
             }
           }
         }
@@ -296,7 +337,7 @@ function parseExportsAst(file: ExpressFile): FileExports {
     }
   }
 
-  return { defaultExpression, named };
+  return { defaultExpression, defaultObject, named, reExports, allReExports };
 }
 
 // ─── Router detection (AST-based) ──────────────────────────────
@@ -331,17 +372,6 @@ const httpMethods: HttpMethod[] = [
   "get", "post", "put", "patch", "delete", "head", "options",
 ];
 
-function isExpressAppOrRouter(node: any): boolean {
-  // app.use(), express(), Router()
-  if (node.type === "CallExpression") {
-    const callee = node.callee;
-    if (callee?.type === "Identifier") {
-      return callee.name === "express" || callee.name === "Router";
-    }
-  }
-  return false;
-}
-
 function parseRoutersAst(
   file: ExpressFile,
   fileMap: Map<string, ExpressFile>,
@@ -358,13 +388,11 @@ function parseRoutersAst(
       node.type === "VariableDeclarator" &&
       node.init?.type === "CallExpression"
     ) {
-      const callee = node.init.callee;
-      if (
-        callee?.type === "Identifier" &&
-        (callee.name === "Router" || callee.name === "express")
-      ) {
+      const isApp = isExpressAppCall(node.init);
+      const isRouter = isExpressRouterCall(node.init);
+      if (isApp || isRouter) {
         const name = node.id?.type === "Identifier" ? node.id.name : "default";
-        const kind = callee.name === "express" ? "app" : "router";
+        const kind = isApp ? "app" : "router";
 
         routers.push({
           key: `${file.filePath}#${name}`,
@@ -646,6 +674,47 @@ function resolveRouterReference(
   fileMap: Map<string, ExpressFile>,
   exportsMap: Map<string, FileExports>,
 ): string | null {
+  const requireMember = getInlineRequireMember(node);
+  if (requireMember) {
+    const sourceFile = resolveRequiredSourceFile(
+      filePath,
+      requireMember.source,
+      fileMap,
+    );
+    if (sourceFile) {
+      const resolved = resolveModuleMemberRouter(
+        sourceFile,
+        requireMember.member,
+        fileMap,
+        exportsMap,
+      );
+      const routerKey = resolved
+        ? routerKeyForResolvedExport(resolved, fileMap)
+        : null;
+      if (routerKey) {
+        return routerKey;
+      }
+    }
+  }
+
+  const requireSource = getInlineRequireSource(node);
+  if (requireSource) {
+    const sourceFile = resolveRequiredSourceFile(filePath, requireSource, fileMap);
+    if (sourceFile) {
+      const resolved = resolveExportedSymbol(
+        sourceFile,
+        "default",
+        exportsMap,
+      );
+      const routerKey = resolved
+        ? routerKeyForResolvedExport(resolved, fileMap)
+        : null;
+      if (routerKey) {
+        return routerKey;
+      }
+    }
+  }
+
   const targetName = getTargetName(node);
   if (!targetName) {
     return null;
@@ -660,16 +729,26 @@ function resolveRouterReference(
       (binding?.kind === "namespace" || binding?.kind === "default") &&
       binding.sourceFile
     ) {
-      const sourceExports = exportsMap.get(binding.sourceFile);
-      const exportedName =
-        sourceExports?.named.get(importedMemberMatch[2]) ??
-        (binding.kind === "namespace" ? importedMemberMatch[2] : undefined);
-      if (!exportedName) {
-        return null;
-      }
-      const targetFile = fileMap.get(binding.sourceFile);
-      if (targetFile && declaresRouterSymbol(targetFile, exportedName)) {
-        return `${binding.sourceFile}#${exportedName}`;
+      const resolved = binding.kind === "default"
+        ? resolveModuleMemberRouter(
+            binding.sourceFile,
+            importedMemberMatch[2],
+            fileMap,
+            exportsMap,
+          )
+        : resolveExportedSymbol(
+            binding.sourceFile,
+            importedMemberMatch[2],
+            exportsMap,
+          ) ?? {
+            sourceFile: binding.sourceFile,
+            localName: importedMemberMatch[2],
+          };
+      if (resolved) {
+        const routerKey = routerKeyForResolvedExport(resolved, fileMap);
+        if (routerKey) {
+          return routerKey;
+        }
       }
     }
   }
@@ -686,23 +765,132 @@ function resolveRouterReference(
     return null;
   }
 
-  const sourceExports = exportsMap.get(importBinding.sourceFile);
-  const exportedName =
-    importBinding.kind === "default"
-      ? sourceExports?.defaultExpression
-      : sourceExports?.named.get(importBinding.importedName ?? targetName) ??
-        importBinding.importedName ??
-        targetName;
-  if (!exportedName) {
+  const resolved = importBinding.kind === "default"
+    ? resolveExportedSymbol(importBinding.sourceFile, "default", exportsMap)
+    : resolveExportedSymbol(
+        importBinding.sourceFile,
+        importBinding.importedName ?? targetName,
+        exportsMap,
+      );
+
+  return resolved ? routerKeyForResolvedExport(resolved, fileMap) : null;
+}
+
+interface ResolvedExport {
+  sourceFile: string;
+  localName: string;
+}
+
+function resolveExportedSymbol(
+  sourceFile: string,
+  exportedName: string,
+  exportsMap: Map<string, FileExports>,
+  seen = new Set<string>(),
+): ResolvedExport | null {
+  const key = `${sourceFile}#${exportedName}`;
+  if (seen.has(key)) {
+    return null;
+  }
+  seen.add(key);
+
+  const sourceExports = exportsMap.get(sourceFile);
+  if (!sourceExports) {
     return null;
   }
 
-  const targetFile = fileMap.get(importBinding.sourceFile);
-  if (!targetFile || !declaresRouterSymbol(targetFile, exportedName)) {
+  if (exportedName === "default" && sourceExports.defaultExpression) {
+    return { sourceFile, localName: sourceExports.defaultExpression };
+  }
+
+  const localName = sourceExports.named.get(exportedName);
+  if (localName) {
+    return { sourceFile, localName };
+  }
+
+  const reExport = sourceExports.reExports.get(exportedName);
+  if (reExport) {
+    return resolveExportedSymbol(
+      reExport.sourceFile,
+      reExport.importedName,
+      exportsMap,
+      seen,
+    ) ?? { sourceFile: reExport.sourceFile, localName: reExport.importedName };
+  }
+
+  for (const allSourceFile of sourceExports.allReExports) {
+    const resolved = resolveExportedSymbol(
+      allSourceFile,
+      exportedName,
+      exportsMap,
+      seen,
+    );
+    if (resolved) {
+      return resolved;
+    }
+  }
+
+  return null;
+}
+
+function resolveModuleMemberRouter(
+  sourceFile: string,
+  memberName: string,
+  fileMap: Map<string, ExpressFile>,
+  exportsMap: Map<string, FileExports>,
+): ResolvedExport | null {
+  const sourceExports = exportsMap.get(sourceFile);
+  const defaultObjectMember = sourceExports?.defaultObject.get(memberName);
+  if (defaultObjectMember) {
+    return { sourceFile, localName: defaultObjectMember };
+  }
+
+  return resolveExportedSymbol(sourceFile, memberName, exportsMap);
+}
+
+function routerKeyForResolvedExport(
+  resolved: ResolvedExport,
+  fileMap: Map<string, ExpressFile>,
+): string | null {
+  const targetFile = fileMap.get(resolved.sourceFile);
+  if (!targetFile || !declaresRouterSymbol(targetFile, resolved.localName)) {
     return null;
   }
 
-  return `${importBinding.sourceFile}#${exportedName}`;
+  return `${resolved.sourceFile}#${resolved.localName}`;
+}
+
+function getInlineRequireSource(node: any): string | null {
+  if (
+    node?.type !== "CallExpression" ||
+    node.callee?.type !== "Identifier" ||
+    node.callee.name !== "require"
+  ) {
+    return null;
+  }
+
+  return getStringValue(node.arguments?.[0]);
+}
+
+function getInlineRequireMember(node: any): { source: string; member: string } | null {
+  if (node?.type !== "MemberExpression") {
+    return null;
+  }
+
+  const source = getInlineRequireSource(node.object);
+  const member = getPropertyName(node.property);
+  return source && member ? { source, member } : null;
+}
+
+function resolveRequiredSourceFile(
+  filePath: string,
+  source: string,
+  fileMap: Map<string, ExpressFile>,
+): string | null {
+  if (!source.startsWith(".")) {
+    return null;
+  }
+
+  return resolveLocalModulePath(filePath, source, new Set(fileMap.keys()));
 }
 
 function parseObjectExportMap(objectExpression: any): Array<[string, string]> {
@@ -762,6 +950,15 @@ function declaresRouterSymbol(file: ExpressFile, symbolName: string): boolean {
   return false;
 }
 
+function isExpressAppCall(node: any): boolean {
+  if (!node || node.type !== "CallExpression") {
+    return false;
+  }
+
+  const callee = node.callee;
+  return callee?.type === "Identifier" && callee.name === "express";
+}
+
 function isExpressRouterCall(node: any): boolean {
   if (!node || node.type !== "CallExpression") {
     return false;
@@ -769,7 +966,7 @@ function isExpressRouterCall(node: any): boolean {
 
   const callee = node.callee;
   if (callee?.type === "Identifier") {
-    return callee.name === "Router" || callee.name === "express";
+    return callee.name === "Router";
   }
 
   if (callee?.type === "MemberExpression") {
@@ -948,7 +1145,7 @@ export async function scanExpressProjectAst(
 
   for (const file of files) {
     imports.set(file.filePath, parseImportsAst(file, filePaths));
-    exportsMap.set(file.filePath, parseExportsAst(file));
+    exportsMap.set(file.filePath, parseExportsAst(file, filePaths));
 
     for (const [name, fn] of parseFunctionsAst(file)) {
       functions.set(name, fn);
@@ -1033,7 +1230,8 @@ interface CollectContext {
 
 function collectRouterEndpointsAst(ctx: CollectContext): void {
   if (ctx.visited.has(ctx.router.key)) return;
-  ctx.visited.add(ctx.router.key);
+  const visited = new Set(ctx.visited);
+  visited.add(ctx.router.key);
 
   const fullMiddleware = [...ctx.inheritedMiddleware, ...(ctx.router.middleware ?? [])];
 
@@ -1101,6 +1299,7 @@ function collectRouterEndpointsAst(ctx: CollectContext): void {
         router: mountedRouter,
         prefix: mountPrefix,
         inheritedMiddleware: [...fullMiddleware, ...mount.middleware],
+        visited,
       });
     }
   }

@@ -241,6 +241,16 @@ describe("Express AST adapter", () => {
           path: "/default/status",
           operationId: "getStatus",
         }),
+        expect.objectContaining({
+          method: "get",
+          path: "/inline/users",
+          operationId: "listUsers",
+        }),
+        expect.objectContaining({
+          method: "get",
+          path: "/inline-default/status",
+          operationId: "getStatus",
+        }),
       ]),
     );
     expect(project.endpoints).not.toEqual(
@@ -248,6 +258,59 @@ describe("Express AST adapter", () => {
         expect.objectContaining({ path: "/users" }),
         expect.objectContaining({ path: "/status" }),
       ]),
+    );
+  });
+
+  it("resolves routers mounted from default object exports", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-default-object-export"),
+      "acme/express-ast-default-object-export",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/api/users",
+        operationId: "listUsers",
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/users",
+      }),
+    );
+  });
+
+  it("resolves routers mounted through barrel re-exports", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-re-export"),
+      "acme/express-ast-re-export",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/api/reports",
+        operationId: "listReports",
+      }),
+    );
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/star/reports",
+        operationId: "listReports",
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/reports",
+      }),
     );
   });
 });

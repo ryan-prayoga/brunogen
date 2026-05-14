@@ -9,5 +9,7 @@ const app = express();
 app.use("/api", routes.router);
 app.use("/admin", adminRouter);
 app.use("/default", defaultRouter);
+app.use("/inline", require("./routes").router);
+app.use("/inline-default", require("./default-routes"));
 
 module.exports = app;
