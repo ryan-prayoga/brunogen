@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+## v0.4.11
+
+_Released: 2026-05-15_
+
 - Resolve more experimental Express AST router mounts from default exports, default object exports, CommonJS object exports, inline `require()` calls, barrel re-exports, `export *`, and repeated router mounts.
 
 ## v0.4.10
