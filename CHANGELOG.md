@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+## v0.4.12
+
+_Released: 2026-05-16_
+
+- Refresh `yaml`, `zod`, TypeScript, Vitest, and Node type dependency ranges.
+- Update transitive lockfile packages to clear npm audit advisories for `fast-uri`, `postcss`, and `vite`.
+
 ## v0.4.11
 
 _Released: 2026-05-15_
