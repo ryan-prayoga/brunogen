@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.4.13
+
+_Released: 2026-05-19_
+
+- Add a built CLI end-to-end verification step that exercises `init`, `generate`, `validate`, and `doctor` against the Laravel fixture.
+- Include the CLI end-to-end check in `npm run verify` so release verification covers the built npm entrypoint.
+- Run CI verification on both Node 20 and Node 24 to match the supported runtime floor and npm publish runtime.
+
 ## v0.4.12
 
 _Released: 2026-05-16_

@@ -1,6 +1,6 @@
 {
   "name": "brunogen",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "description": "Scan Laravel, Express.js, and Go API projects, normalize them into OpenAPI, and emit ready-to-try Bruno collections.",
   "type": "commonjs",
   "main": "./dist/index.js",
@@ -15,13 +15,14 @@
     "demo:laravel": "npm run build && node scripts/update-laravel-demo.js",
     "demo:express": "npm run build && node scripts/update-express-demo.js",
     "demo:go": "npm run build && node scripts/update-go-demo.js",
+    "cli:e2e": "node scripts/check-cli-e2e.js",
     "pack:check": "node scripts/check-pack-size.js",
     "readme:check": "node scripts/check-readme-links.js",
     "prepare": "npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
-    "verify": "npm run typecheck && npm test && npm run build && npm run pack:check && npm run readme:check && node dist/cli.js --help"
+    "verify": "npm run typecheck && npm test && npm run build && npm run cli:e2e && npm run pack:check && npm run readme:check && node dist/cli.js --help"
   },
   "keywords": [
     "bruno",

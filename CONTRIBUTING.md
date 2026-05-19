@@ -26,6 +26,7 @@ The CI workflow mirrors `npm run verify` on pull requests and pushes to `main`.
 npm run typecheck
 npm test
 npm run build
+npm run cli:e2e
 npm run demo:laravel
 npm run demo:express
 npm run demo:go
