@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+## v0.4.14
+
+_Released: 2026-05-21_
+
+- Resolve statically computed Express AST mount and route paths from string constants, string concatenation, and template literals.
+- Add Express AST regression coverage for computed app mounts and router paths with path parameters.
+- Update Express AST progress and reference docs to distinguish static computed paths from dynamic path patterns.
+
 ## v0.4.13
 
 _Released: 2026-05-19_

@@ -87,11 +87,40 @@ function getLoc(node: any): LocInfo {
   return node?.loc?.start ? { line: node.loc.start.line } : {};
 }
 
-function getStringValue(node: any): string | null {
+function getStringValue(
+  node: any,
+  stringConstants = new Map<string, string>(),
+): string | null {
   if (!node) return null;
   if (node.type === "Literal" && typeof node.value === "string") return node.value;
-  if (node.type === "TemplateLiteral" && node.quasis?.length > 0)
-    return node.quasis[0].value.cooked;
+  if (node.type === "Identifier") return stringConstants.get(node.name) ?? null;
+  if (node.type === "TemplateLiteral" && node.quasis?.length > 0) {
+    let result = "";
+    for (let index = 0; index < node.quasis.length; index += 1) {
+      result += node.quasis[index]?.value?.cooked ?? "";
+      const expression = node.expressions?.[index];
+      if (expression) {
+        const expressionValue = getStringValue(expression, stringConstants);
+        if (expressionValue === null) {
+          return null;
+        }
+        result += expressionValue;
+      }
+    }
+    return result;
+  }
+  if (node.type === "BinaryExpression" && node.operator === "+") {
+    const left = getStringValue(node.left, stringConstants);
+    const right = getStringValue(node.right, stringConstants);
+    return left !== null && right !== null ? `${left}${right}` : null;
+  }
+  if (
+    node.type === "TSAsExpression" ||
+    node.type === "TSSatisfiesExpression" ||
+    node.type === "TSNonNullExpression"
+  ) {
+    return getStringValue(node.expression, stringConstants);
+  }
   return null;
 }
 
@@ -381,6 +410,7 @@ function parseRoutersAst(
   const routers: RouterRecord[] = [];
   const fileImports = imports.get(file.filePath) ?? new Map();
   const knownFiles = new Set(fileMap.keys());
+  const stringConstants = collectStringConstants(file);
 
   for (const node of walkAst(file.ast)) {
     // Router() / express() creation
@@ -420,8 +450,10 @@ function parseRoutersAst(
         );
         if (!sourceRouter) continue;
 
-        const firstArgIsPath = getStringValue(args[0]) !== null;
-        const mountPath = firstArgIsPath ? getStringValue(args[0]) ?? "" : "";
+        const firstArgIsPath = getStringValue(args[0], stringConstants) !== null;
+        const mountPath = firstArgIsPath
+          ? getStringValue(args[0], stringConstants) ?? ""
+          : "";
         const remainingArgs = args.slice(firstArgIsPath ? 1 : 0);
         if (remainingArgs.length === 0) continue;
 
@@ -518,7 +550,9 @@ function parseRoutersAst(
 
       if (objName === router.name && propName && httpMethods.includes(propName as HttpMethod)) {
         const args = node.arguments ?? [];
-        const routePath = args.length > 0 ? getStringValue(args[0]) ?? "/" : "/";
+        const routePath = args.length > 0
+          ? getStringValue(args[0], stringConstants) ?? "/"
+          : "/";
         const handlerExpr = args.at(-1);
         const handler = getTargetName(handlerExpr) ?? "anonymous";
 
@@ -539,6 +573,45 @@ function parseRoutersAst(
   }
 
   return routers;
+}
+
+function collectStringConstants(file: ExpressFile): Map<string, string> {
+  const constants = new Map<string, string>();
+  const candidates: Array<{ name: string; init: any }> = [];
+
+  for (const node of walkAst(file.ast)) {
+    if (node.type !== "VariableDeclaration" || node.kind !== "const") {
+      continue;
+    }
+
+    for (const declaration of node.declarations ?? []) {
+      if (declaration.id?.type === "Identifier" && declaration.init) {
+        candidates.push({
+          name: declaration.id.name,
+          init: declaration.init,
+        });
+      }
+    }
+  }
+
+  let changed = true;
+  while (changed) {
+    changed = false;
+
+    for (const candidate of candidates) {
+      if (constants.has(candidate.name)) {
+        continue;
+      }
+
+      const value = getStringValue(candidate.init, constants);
+      if (value !== null) {
+        constants.set(candidate.name, value);
+        changed = true;
+      }
+    }
+  }
+
+  return constants;
 }
 
 const defaultStatusByMethod: Record<HttpMethod, string> = {

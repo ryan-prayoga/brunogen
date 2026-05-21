@@ -313,4 +313,39 @@ describe("Express AST adapter", () => {
       }),
     );
   });
+
+  it("resolves statically computed mount and route paths", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-computed-paths"),
+      "acme/express-ast-computed-paths",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "get",
+        path: "/api/v1/users",
+        operationId: "listUsers",
+      }),
+    );
+    expect(project.endpoints).toContainEqual(
+      expect.objectContaining({
+        method: "post",
+        path: "/api/v1/users/{id}/actions",
+        operationId: "runUserAction",
+        parameters: expect.arrayContaining([
+          expect.objectContaining({
+            in: "path",
+            name: "id",
+          }),
+        ]),
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        path: "/users",
+      }),
+    );
+  });
 });
