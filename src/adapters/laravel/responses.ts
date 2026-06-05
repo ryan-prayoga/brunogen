@@ -1,3 +1,5 @@
+import { promises as fs } from "node:fs";
+
 import { dedupeResponsesByStatusCode } from "../../core/dedupe";
 import {
   extractBalanced,
@@ -17,7 +19,9 @@ import {
   extractDirectReturnArrays,
   extractReturnStatements,
   findPhpMethod,
+  parsePhpFileContext,
   parsePhpString,
+  resolvePhpClassRecord,
 } from "./shared";
 import {
   extractLaravelResourceResponses,
@@ -354,26 +358,73 @@ async function extractLaravelHelperResponses(
       controllerContent,
       helperCall.methodName,
     );
-    if (!helperMethod) {
+    if (helperMethod) {
+      const seedAssignments = new Map(exampleContext.assignments);
+      helperMethod.params.forEach((paramName, index) => {
+        const argExpression = helperCall.args[index];
+        if (argExpression) {
+          seedAssignments.set(
+            paramName,
+            resolveLaravelHelperArgument(argExpression, exampleContext),
+          );
+        }
+      });
+
+      responses.push(
+        ...(await extractLaravelResponses(
+          helperMethod.body,
+          classIndex,
+          controllerContent,
+          createPhpExampleContext(helperMethod.body, seedAssignments),
+          depth + 1,
+          fileContext,
+        )),
+      );
+      continue;
+    }
+
+    if (!helperCall.className) {
+      continue;
+    }
+
+    const helperRecord = resolvePhpClassRecord(
+      classIndex,
+      helperCall.className,
+      fileContext,
+    );
+    if (!helperRecord) {
+      continue;
+    }
+
+    const helperContent = await fs.readFile(helperRecord.filePath, "utf8");
+    const helperFileContext = parsePhpFileContext(helperContent);
+    const staticHelperMethod = findPhpMethod(
+      helperContent,
+      helperCall.methodName,
+    );
+    if (!staticHelperMethod) {
       continue;
     }
 
     const seedAssignments = new Map(exampleContext.assignments);
-    helperMethod.params.forEach((paramName, index) => {
+    staticHelperMethod.params.forEach((paramName, index) => {
       const argExpression = helperCall.args[index];
       if (argExpression) {
-        seedAssignments.set(paramName, argExpression);
+        seedAssignments.set(
+          paramName,
+          resolveLaravelHelperArgument(argExpression, exampleContext),
+        );
       }
     });
 
     responses.push(
       ...(await extractLaravelResponses(
-        helperMethod.body,
+        staticHelperMethod.body,
         classIndex,
-        controllerContent,
-        createPhpExampleContext(helperMethod.body, seedAssignments),
+        helperContent,
+        createPhpExampleContext(staticHelperMethod.body, seedAssignments),
         depth + 1,
-        fileContext,
+        helperFileContext,
       )),
     );
   }
@@ -381,17 +432,33 @@ async function extractLaravelHelperResponses(
   return dedupeResponsesByStatusCode(responses);
 }
 
+function resolveLaravelHelperArgument(
+  expression: string,
+  exampleContext: PhpExampleContext,
+): string {
+  const variableMatch = expression.trim().match(/^\$([A-Za-z_][A-Za-z0-9_]*)$/);
+  if (!variableMatch?.[1]) {
+    return expression;
+  }
+
+  return exampleContext.assignments.get(variableMatch[1]) ?? expression;
+}
+
 function parseLaravelHelperReturnStatement(
   statement: string,
-): { methodName: string; args: string[] } | undefined {
+): { className?: string; methodName: string; args: string[] } | undefined {
   const helperMatch = statement.match(
     /^return\s+(?:\$this->|self::)([A-Za-z_][A-Za-z0-9_]*)\s*\(/,
   );
-  if (!helperMatch?.[1]) {
+  const staticHelperMatch = statement.match(
+    /^return\s+([A-Za-z_\\][A-Za-z0-9_\\]*)::([A-Za-z_][A-Za-z0-9_]*)\s*\(/,
+  );
+  if (!helperMatch?.[1] && !staticHelperMatch?.[1]) {
     return undefined;
   }
 
-  const openParenIndex = statement.indexOf("(", helperMatch[0].length - 1);
+  const matchedPrefix = helperMatch?.[0] ?? staticHelperMatch?.[0] ?? "";
+  const openParenIndex = statement.indexOf("(", matchedPrefix.length - 1);
   const argsBlock =
     openParenIndex >= 0
       ? extractBalanced(statement, openParenIndex, "(", ")")
@@ -401,7 +468,8 @@ function parseLaravelHelperReturnStatement(
   }
 
   return {
-    methodName: helperMatch[1],
+    className: staticHelperMatch?.[1],
+    methodName: helperMatch?.[1] ?? staticHelperMatch?.[2] ?? "",
     args: splitTopLevel(argsBlock.slice(1, -1), ","),
   };
 }

@@ -104,6 +104,7 @@ $request->has('profile_photo');
 $request->filled('nickname');
 $request->safe()->only(['locale']);
 $request->enum('role', UserRole::class);
+new Enum(UserRole::class);
 ```
 
 Response inference is strongest when controllers use patterns like:
@@ -113,6 +114,7 @@ return response()->json([...], 201);
 return [...];
 return ProjectResource::make($project)->additional([...]);
 return $this->createdResponse($payload);
+return ApiResponse::created($payload);
 abort_if(!$enabled, 403, 'Forbidden');
 Model::query()->findOrFail($id);
 throw ValidationException::withMessages([...]);
@@ -433,7 +435,7 @@ example {
 | Laravel route scanning | Supported | Reads `routes/*.php` declarations |
 | Laravel route groups and prefixes | Supported | Handles common `prefix`, `middleware`, and grouped routes |
 | Laravel `apiResource` expansion | Supported | Common REST actions are expanded |
-| Laravel FormRequest inference | Partial | `rules()` arrays are supported; complex dynamic rules are not |
+| Laravel FormRequest inference | Partial | `rules()` arrays are supported, including common enum rule objects and conditional required rule annotations; complex dynamic rules are not |
 | Laravel manual request inference | Strong partial | Common `query`, `header`, `input`, typed accessors, `has`, `filled`, `only([...])`, `safe()->only([...])`, and `enum(...)` patterns are inferred |
 | Laravel inline validation inference | Partial | Simple `$request->validate()` and `Validator::make()` arrays |
 | Auth inference | Partial | Middleware and OpenAPI security are inferred heuristically |
@@ -446,7 +448,7 @@ example {
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
 | Go Echo scanning | Experimental | Route and request inference are heuristic |
 | Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns and common validation tags such as `required`, `email`, `uuid`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, and `oneof` |
-| Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, same-controller wrapper helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths |
+| Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, same-controller and static class wrapper helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths |
 | Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, `sendStatus()`, and local helper wrappers |
 | Go response inference | Partial | Covers common direct JSON responses plus existing helper-based patterns, but remains heuristic |
 | Watch mode | Supported | Regenerates on configured source globs and ignores common dependency, build, VCS, coverage, and Brunogen output directories by default |
@@ -457,8 +459,8 @@ example {
 - Laravel and the default Express scanner are regex-driven rather than full AST analysis, so unusual declarations can still be missed.
 - Express AST scanning is available as an experimental opt-in path, but it still reuses the default handler inference and should be treated as best-effort.
 - Dynamic imports, non-static computed paths, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
-- Complex Laravel validation rules, custom rule objects, and conditional validation are only partially inferred.
-- Laravel response inference is strongest for controller-local patterns and common resource usage; cross-class service wrappers and highly dynamic composition are still best-effort.
+- Complex Laravel validation rules, custom rule objects beyond common enum rules, and conditional validation are only partially inferred.
+- Laravel response inference is strongest for controller-local patterns, static helper wrappers, and common resource usage; cross-class service wrappers with highly dynamic composition are still best-effort.
 - Express request and response inference is strongest for direct `req.body` / `req.query` / `req.headers` access, straightforward Joi/Zod object schemas, and local `res.*()` helper wrappers.
 - Go support is still experimental, especially around indirect helpers, nested wrappers, and custom response builders.
 - Generated Bruno auth gives you a usable starting point, not a complete auth flow engine.

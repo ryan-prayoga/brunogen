@@ -166,6 +166,17 @@ function normalizeRuleEntry(rule: string): string[] {
     return [`enum:${enumRuleMatch[1]}`];
   }
 
+  const enumObjectRuleMatch = rule.match(
+    /^new\s+(?:[A-Za-z_\\][A-Za-z0-9_\\]*\\)?Enum\s*\(\s*([A-Za-z0-9_\\]+)::class\s*\)$/i,
+  );
+  if (enumObjectRuleMatch?.[1]) {
+    return [`enum:${enumObjectRuleMatch[1]}`];
+  }
+
+  if (/^[A-Za-z_\\][A-Za-z0-9_\\]*::requiredIf\s*\(/i.test(rule)) {
+    return ["required_if"];
+  }
+
   return [];
 }
 
@@ -178,12 +189,24 @@ async function buildFieldSchema(
   const schema: SchemaObject = {};
   let inferredType: string | undefined;
   let required = false;
+  const conditionalRules: string[] = [];
 
   for (const rule of rules) {
     const [name, rawArgument] = splitRule(rule);
     switch (name) {
       case "required":
         required = true;
+        break;
+      case "required_if":
+      case "required_unless":
+      case "required_with":
+      case "required_with_all":
+      case "required_without":
+      case "required_without_all":
+        conditionalRules.push(formatConditionalRuleDescription(name, rawArgument));
+        break;
+      case "sometimes":
+        conditionalRules.push("Conditionally validated by sometimes.");
         break;
       case "string":
         inferredType = "string";
@@ -255,8 +278,22 @@ async function buildFieldSchema(
     }
   }
 
+  if (conditionalRules.length > 0) {
+    schema.description = [schema.description, ...conditionalRules]
+      .filter(Boolean)
+      .join(" ");
+  }
+
   schema.type = inferredType ?? schema.type ?? "string";
   return { schema, required };
+}
+
+function formatConditionalRuleDescription(
+  ruleName: string,
+  rawArgument: string,
+): string {
+  const suffix = rawArgument ? `:${rawArgument}` : "";
+  return `Conditionally required by ${ruleName}${suffix}.`;
 }
 
 function applyRuleFieldSchema(

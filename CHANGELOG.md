@@ -8,6 +8,7 @@
 - Resolve local Express AST router factories mounted as `app.use("/prefix", createRouter())`.
 - Infer straightforward Zod object schemas parsed from `req.body` or `req.query` in Express handlers.
 - Infer additional Go validation tags including `uuid`, `len`, `gt`, `gte`, `lt`, and `lte`.
+- Infer Laravel `new Enum(...)` validation rule objects, annotate conditional validation rules, and resolve static response helper classes such as `ApiResponse::created(...)`.
 
 ## v0.4.14
 

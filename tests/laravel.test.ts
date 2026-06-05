@@ -239,6 +239,49 @@ describe("Laravel adapter", () => {
     );
   });
 
+  it("infers conditional Laravel rules, enum rule objects, and static response helpers", async () => {
+    const artifacts = await generateArtifacts(
+      fixturePath("laravel-edge-cases"),
+      defaultConfig(),
+    );
+
+    const createReport = artifacts.normalized.endpoints.find(
+      (endpoint) => endpoint.path === "/reports" && endpoint.method === "post",
+    );
+    expect(createReport?.requestBody?.schema.properties?.title?.maxLength).toBe(120);
+    expect(createReport?.requestBody?.schema.properties?.status?.enum).toEqual([
+      "draft",
+      "published",
+    ]);
+    expect(
+      createReport?.requestBody?.schema.properties?.published_at?.description,
+    ).toContain("Conditionally required by required_if:status,published.");
+    expect(
+      createReport?.requestBody?.schema.properties?.reviewer_email?.description,
+    ).toContain("Conditionally validated by sometimes.");
+    expect(createReport?.requestBody?.schema.properties?.reviewer_email?.format).toBe("email");
+    expect(
+      createReport?.requestBody?.schema.properties?.category?.description,
+    ).toContain("Conditionally required by required_if.");
+    expect(createReport?.requestBody?.schema.required).toEqual(
+      expect.arrayContaining(["title", "status"]),
+    );
+    expect(createReport?.requestBody?.schema.required).not.toContain("published_at");
+    expect(createReport?.requestBody?.schema.required).not.toContain("category");
+    expect(createReport?.responses).toContainEqual(
+      expect.objectContaining({
+        statusCode: "201",
+        example: {
+          message: "Report created",
+          data: {
+            id: 10,
+            title: "Quarterly report",
+          },
+        },
+      }),
+    );
+  });
+
   it("infers simple and cursor paginator resource envelopes", async () => {
     const artifacts = await generateArtifacts(
       fixturePath("laravel-pagination-modes"),
