@@ -442,7 +442,7 @@ example {
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
 | Bruno export | Supported | Collection, requests, environments, baseline auth blocks, and response `example {}` blocks |
 | Express route scanning | Experimental | Handles `express()` / `Router()`, `use()` mounts, and `route()` chains |
-| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; resolves common static import/export router mounts including default, CommonJS, barrel re-export, repeated mount patterns, local router factory returns, and statically computed string paths; falls back to the default Express scanner if AST scanning fails |
+| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; resolves common static import/export router mounts including default, CommonJS, barrel re-export, repeated mount patterns, dynamic import members, local router factory returns, custom local router wrappers, and statically computed string paths; falls back to the default Express scanner if AST scanning fails |
 | Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers, Joi/Zod object schemas, and local response helpers |
 | Go Fiber scanning | Experimental | Route and request inference are heuristic |
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
@@ -458,7 +458,7 @@ example {
 - Brunogen is optimized for conventional code, not heavily dynamic or meta-programmed applications.
 - Laravel and the default Express scanner are regex-driven rather than full AST analysis, so unusual declarations can still be missed.
 - Express AST scanning is available as an experimental opt-in path, but it still reuses the default handler inference and should be treated as best-effort.
-- Dynamic imports, non-static computed paths, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
+- Non-static dynamic imports, non-static computed paths, higher-order custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects beyond common enum rules, and conditional validation are only partially inferred.
 - Laravel response inference is strongest for controller-local patterns, static helper wrappers, and common resource usage; cross-class service wrappers with highly dynamic composition are still best-effort.
 - Express request and response inference is strongest for direct `req.body` / `req.query` / `req.headers` access, straightforward Joi/Zod object schemas, and local `res.*()` helper wrappers.

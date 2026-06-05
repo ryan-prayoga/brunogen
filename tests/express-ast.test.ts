@@ -423,4 +423,38 @@ describe("Express AST adapter", () => {
       }),
     );
   });
+
+  it("resolves dynamic import mounts and custom local router abstractions", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-dynamic-custom"),
+      "acme/express-ast-dynamic-custom",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "get",
+          path: "/api/custom/reports",
+          operationId: "listReports",
+        }),
+        expect.objectContaining({
+          method: "get",
+          path: "/dynamic/reports",
+          operationId: "listReports",
+        }),
+        expect.objectContaining({
+          method: "post",
+          path: "/named/reports",
+          operationId: "listReports",
+        }),
+      ]),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        path: "/reports",
+      }),
+    );
+  });
 });

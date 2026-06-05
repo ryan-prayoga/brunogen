@@ -418,7 +418,9 @@ function parseRoutersAst(
       node.init?.type === "CallExpression"
     ) {
       const isApp = isExpressAppCall(node.init);
-      const isRouter = isExpressRouterCall(node.init);
+      const isRouter =
+        isExpressRouterCall(node.init) ||
+        isExpressRouterFactoryCall(node.init, file);
       if (isApp || isRouter) {
         const name = node.id?.type === "Identifier" ? node.id.name : "default";
         const kind = isApp ? "app" : "router";
@@ -746,6 +748,31 @@ function resolveRouterReference(
   fileMap: Map<string, ExpressFile>,
   exportsMap: Map<string, FileExports>,
 ): string | null {
+  const dynamicImportMember = getInlineDynamicImportMember(node);
+  if (dynamicImportMember) {
+    const sourceFile = resolveRequiredSourceFile(
+      filePath,
+      dynamicImportMember.source,
+      fileMap,
+    );
+    if (sourceFile) {
+      const resolved = dynamicImportMember.member === "default"
+        ? resolveExportedSymbol(sourceFile, "default", exportsMap)
+        : resolveModuleMemberRouter(
+            sourceFile,
+            dynamicImportMember.member,
+            fileMap,
+            exportsMap,
+          );
+      const routerKey = resolved
+        ? routerKeyForResolvedExport(resolved, fileMap)
+        : null;
+      if (routerKey) {
+        return routerKey;
+      }
+    }
+  }
+
   const requireMember = getInlineRequireMember(node);
   if (requireMember) {
     const sourceFile = resolveRequiredSourceFile(
@@ -1047,6 +1074,52 @@ function getInlineRequireMember(node: any): { source: string; member: string } |
   return source && member ? { source, member } : null;
 }
 
+function getInlineDynamicImportMember(
+  node: any,
+): { source: string; member: string } | null {
+  const unwrapped = unwrapExpression(node);
+  if (unwrapped?.type !== "MemberExpression") {
+    return null;
+  }
+
+  const source = getDynamicImportSource(unwrapped.object);
+  const member = getPropertyName(unwrapped.property);
+  return source && member ? { source, member } : null;
+}
+
+function getDynamicImportSource(node: any): string | null {
+  const unwrapped = unwrapExpression(node);
+  if (!unwrapped) {
+    return null;
+  }
+
+  if (unwrapped.type === "ImportExpression") {
+    return getStringValue(unwrapped.source);
+  }
+
+  if (
+    unwrapped.type === "CallExpression" &&
+    unwrapped.callee?.type === "Import"
+  ) {
+    return getStringValue(unwrapped.arguments?.[0]);
+  }
+
+  return null;
+}
+
+function unwrapExpression(node: any): any {
+  let current = node;
+  while (
+    current?.type === "AwaitExpression" ||
+    current?.type === "ChainExpression" ||
+    current?.type === "TSAsExpression" ||
+    current?.type === "TSTypeAssertion"
+  ) {
+    current = current.expression ?? current.argument;
+  }
+  return current;
+}
+
 function resolveRequiredSourceFile(
   filePath: string,
   source: string,
@@ -1108,7 +1181,10 @@ function declaresRouterSymbol(file: ExpressFile, symbolName: string): boolean {
       continue;
     }
 
-    if (isExpressRouterCall(node.init)) {
+    if (
+      isExpressRouterCall(node.init) ||
+      isExpressRouterFactoryCall(node.init, file)
+    ) {
       return true;
     }
   }
@@ -1140,6 +1216,62 @@ function isExpressRouterCall(node: any): boolean {
       getTargetName(callee.object) === "express" &&
       getPropertyName(callee.property) === "Router"
     );
+  }
+
+  return false;
+}
+
+function isExpressRouterFactoryCall(node: any, file: ExpressFile): boolean {
+  if (
+    !node ||
+    node.type !== "CallExpression" ||
+    node.callee?.type !== "Identifier"
+  ) {
+    return false;
+  }
+
+  const body = findFactoryFunctionBody(file, node.callee.name);
+  return body ? factoryBodyReturnsExpressRouter(body) : false;
+}
+
+function findFactoryFunctionBody(
+  file: ExpressFile,
+  factoryName: string,
+): any | null {
+  for (const node of walkAst(file.ast)) {
+    const body = getFactoryFunctionBody(node, factoryName);
+    if (body) {
+      return body;
+    }
+  }
+
+  return null;
+}
+
+function factoryBodyReturnsExpressRouter(body: any): boolean {
+  const routerNames = new Set<string>();
+
+  for (const node of walkAst(body)) {
+    if (
+      node.type === "VariableDeclarator" &&
+      node.id?.type === "Identifier" &&
+      isExpressRouterCall(node.init)
+    ) {
+      routerNames.add(node.id.name);
+    }
+
+    if (node.type !== "ReturnStatement") {
+      continue;
+    }
+
+    if (isExpressRouterCall(node.argument)) {
+      return true;
+    }
+
+    const returnedName = getTargetName(node.argument);
+    if (returnedName && routerNames.has(returnedName)) {
+      return true;
+    }
   }
 
   return false;

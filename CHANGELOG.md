@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+## v0.5.1
+
+_Released: 2026-06-05_
+
+- Resolve Express AST mounts from dynamic import members and custom local router abstractions that return `Router()`.
+
 ## v0.5.0
 
 _Released: 2026-06-05_
