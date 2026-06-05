@@ -37,7 +37,6 @@ let parserModule: typeof import("@typescript-eslint/parser") | null = null;
 function getParser() {
   if (!parserModule) {
     try {
-      // eslint-disable-next-line @typescript-eslint/no-var-requires
       parserModule = require("@typescript-eslint/parser");
     } catch {
       throw new Error(

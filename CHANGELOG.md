@@ -4,6 +4,7 @@
 
 - Format invalid config JSON/YAML/schema errors as concise CLI messages instead of leaking Node stack traces.
 - Add configurable `watch.include` and `watch.exclude` globs, with default ignores for dependency, VCS, build, coverage, and Brunogen output directories.
+- Add ESLint and Vitest coverage gates to `npm run verify`, with current dependency refreshes for Commander, ESLint, TypeScript parser, Vitest, and Node types.
 
 ## v0.4.14
 
