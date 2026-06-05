@@ -105,9 +105,23 @@ source code
 
 OpenAPI becomes the internal source of truth after scanning. Bruno is the output target.
 
+## Security Roadmap
+
+Brunogen already maps API surfaces from source code. The next security-focused direction is to turn that inferred API surface into useful review and regression-test signals:
+
+- detect undocumented or unexpectedly public routes
+- infer auth and middleware coverage across Laravel, Express.js, and Go frameworks
+- flag suspicious validation gaps around request bodies, query params, headers, and path params
+- warn on sensitive config, secret, or environment references in API handlers
+- generate Bruno negative/security test collections for common failure paths
+- emit machine-readable findings that can be consumed in CI
+
+See [SECURITY.md](https://github.com/ryan-prayoga/brunogen/blob/main/SECURITY.md) for reporting guidance and security scope.
+
 ## Read More
 
 - [Detailed reference, examples, config, and support matrix](https://github.com/ryan-prayoga/brunogen/blob/main/docs/reference.md)
 - [CHANGELOG.md](https://github.com/ryan-prayoga/brunogen/blob/main/CHANGELOG.md)
 - [CONTRIBUTING.md](https://github.com/ryan-prayoga/brunogen/blob/main/CONTRIBUTING.md)
+- [SECURITY.md](https://github.com/ryan-prayoga/brunogen/blob/main/SECURITY.md)
 - [docs/release-checklist.md](https://github.com/ryan-prayoga/brunogen/blob/main/docs/release-checklist.md)

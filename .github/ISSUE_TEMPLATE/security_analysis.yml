@@ -1,0 +1,44 @@
+name: Security analysis idea
+description: Propose a security-focused inference or generated-test improvement
+title: "security: "
+labels: ["security", "enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not include secrets, exploit details, private source code, or production URLs.
+  - type: textarea
+    id: scenario
+    attributes:
+      label: Scenario
+      description: What security-relevant API pattern should Brunogen detect or test?
+      placeholder: Missing auth middleware on admin routes, weak request validation, secret/config references in handlers, undocumented sensitive routes...
+    validations:
+      required: true
+  - type: dropdown
+    id: framework
+    attributes:
+      label: Framework
+      options:
+        - Laravel
+        - Express.js
+        - Go Gin
+        - Go Fiber
+        - Go Echo
+        - Cross-framework
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: safe_fixture
+    attributes:
+      label: Safe minimal fixture
+      description: Optional synthetic example only. No real secrets or private code.
+      render: text
+  - type: textarea
+    id: output
+    attributes:
+      label: Desired Brunogen output
+      description: Warning, OpenAPI extension, Bruno negative test, SARIF/finding, docs note, etc.
+    validations:
+      required: true

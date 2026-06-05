@@ -1,0 +1,41 @@
+name: Feature request
+description: Suggest framework support, inference improvement, or output behavior
+title: "feat: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What API documentation or Bruno generation problem should Brunogen solve?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Laravel adapter
+        - Express.js adapter
+        - Go adapter
+        - OpenAPI generation
+        - Bruno output
+        - CLI/config
+        - Documentation
+        - Security analysis
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: Describe the behavior you want.
+    validations:
+      required: true
+  - type: textarea
+    id: examples
+    attributes:
+      label: Example code or output
+      description: Optional minimal route/controller/handler or generated output example.
+      render: text
