@@ -31,6 +31,10 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Check release tag
+        if: github.event_name == 'release'
+        run: node scripts/check-release-version.js "${{ github.event.release.tag_name }}"
+
       - name: Verify package
         run: npm run verify
 

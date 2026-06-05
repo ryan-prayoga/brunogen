@@ -3,6 +3,7 @@
 ## Before tagging
 
 - Confirm package metadata matches the repository and CLI command
+- Confirm `package.json`, `package-lock.json`, `CHANGELOG.md`, and the release tag all use the same version
 - Run `npm run verify`
 - Run the Laravel fixture demo:
   `cd tests/fixtures/laravel && node ../../../dist/cli.js generate`
