@@ -4,6 +4,7 @@ import { promises as fs } from "node:fs";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
 
+import { defaultWatchExclude, defaultWatchInclude } from "./watch";
 import type { BrunogenConfig } from "./model";
 
 const configSchema = z.object({
@@ -37,6 +38,13 @@ const configSchema = z.object({
       },
     },
   ]),
+  watch: z.object({
+    include: z.array(z.string().min(1)).default(defaultWatchInclude),
+    exclude: z.array(z.string().min(1)).default(defaultWatchExclude),
+  }).default({
+    include: defaultWatchInclude,
+    exclude: defaultWatchExclude,
+  }),
   auth: z.object({
     default: z.enum(["auto", "none", "bearer", "basic", "apiKey"]).default("auto"),
     bearerTokenVar: z.string().default("authToken"),
@@ -99,12 +107,24 @@ export async function loadConfig(cwd: string, explicitPath?: string): Promise<{ 
   }
 
   const rawContent = await fs.readFile(configPath, "utf8");
-  const parsed = configPath.endsWith(".json")
-    ? JSON.parse(rawContent)
-    : parseYaml(rawContent);
+  let parsed: unknown;
+  try {
+    parsed = configPath.endsWith(".json")
+      ? JSON.parse(rawContent)
+      : parseYaml(rawContent);
+  } catch (error) {
+    throw new Error(
+      `Invalid brunogen config at ${configPath}: ${formatErrorMessage(error)}`,
+    );
+  }
+
+  const result = configSchema.safeParse(parsed);
+  if (!result.success) {
+    throw new Error(formatConfigValidationError(configPath, result.error));
+  }
 
   return {
-    config: structuredClone(configSchema.parse(parsed)),
+    config: structuredClone(result.data),
     configPath,
   };
 }
@@ -116,4 +136,20 @@ export function resolveFromConfigRoot(configPath: string | null, value: string, 
 
 export function renderDefaultConfigFile(): string {
   return `${JSON.stringify(defaultConfig(), null, 2)}\n`;
+}
+
+function formatConfigValidationError(configPath: string, error: z.ZodError): string {
+  const issues = error.issues.map((issue) => {
+    const location = issue.path.length > 0 ? issue.path.join(".") : "config";
+    return `- ${location}: ${issue.message}`;
+  });
+
+  return [
+    `Invalid brunogen config at ${configPath}:`,
+    ...issues,
+  ].join("\n");
+}
+
+function formatErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }

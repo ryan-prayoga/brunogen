@@ -1,5 +1,5 @@
-const { execFileSync } = require("node:child_process");
-const { existsSync, mkdtempSync, rmSync, cpSync } = require("node:fs");
+const { execFileSync, spawnSync } = require("node:child_process");
+const { existsSync, mkdtempSync, rmSync, cpSync, writeFileSync } = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 
@@ -10,6 +10,14 @@ const fixtureRoot = path.join(repoRoot, "tests", "fixtures", "laravel");
 
 function runCli(args, cwd) {
   return execFileSync(nodeCommand, [cliPath, ...args], {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function runCliFailure(args, cwd) {
+  return spawnSync(nodeCommand, [cliPath, ...args], {
     cwd,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
@@ -64,6 +72,27 @@ function main() {
     const doctorOutput = runCli(["doctor"], projectRoot);
     assert(doctorOutput.includes("framework: laravel"), "doctor did not detect Laravel.");
     assert(doctorOutput.includes("endpoints scanned: 6"), "doctor did not report the expected endpoint count.");
+
+    const invalidConfigRoot = path.join(workspace, "invalid-config");
+    cpSync(fixtureRoot, invalidConfigRoot, {
+      recursive: true,
+      filter: (source) => !path.relative(fixtureRoot, source).split(path.sep).includes(".brunogen"),
+    });
+    writeFileSync(
+      path.join(invalidConfigRoot, "brunogen.config.json"),
+      "{ invalid json\n",
+      "utf8",
+    );
+    const invalidConfigResult = runCliFailure(["generate"], invalidConfigRoot);
+    assert(invalidConfigResult.status === 1, "generate should fail for invalid config JSON.");
+    assert(
+      invalidConfigResult.stderr.includes("Invalid brunogen config at"),
+      "invalid config error should include a friendly config message.",
+    );
+    assert(
+      !invalidConfigResult.stderr.includes("at JSON.parse"),
+      "invalid config error should not leak a JSON.parse stack trace.",
+    );
 
     console.log("CLI e2e check passed.");
   } finally {

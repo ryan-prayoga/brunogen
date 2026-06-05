@@ -109,6 +109,10 @@ export interface BrunogenConfig {
     serverUrl: string;
   };
   environments: EnvironmentConfig[];
+  watch: {
+    include: string[];
+    exclude: string[];
+  };
   auth: {
     default: "auto" | NormalizedAuthType;
     bearerTokenVar: string;

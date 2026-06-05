@@ -12,6 +12,7 @@ Initial contract for `brunogen`:
   - `output.brunoDir`: generated Bruno collection directory
   - `project.name`, `project.version`, `project.serverUrl`
   - `environments[]`: generated Bruno environments with variable maps
+  - `watch.include[]`, `watch.exclude[]`: source globs watched by `brunogen watch` and default ignored generated/vendor directories
   - `auth`: baseline auth variable names, API key placement defaults, and bearer middleware hint patterns
 - Normalized model contract:
   - Framework adapters emit a shared `NormalizedProject`

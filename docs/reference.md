@@ -390,6 +390,24 @@ example {
       }
     }
   ],
+  "watch": {
+    "include": [
+      "**/*.php",
+      "**/*.go",
+      "**/*.js",
+      "**/*.cjs",
+      "**/*.mjs",
+      "**/*.ts"
+    ],
+    "exclude": [
+      "**/node_modules/**",
+      "**/vendor/**",
+      "**/.git/**",
+      "**/dist/**",
+      "**/coverage/**",
+      "**/.brunogen/**"
+    ]
+  },
   "auth": {
     "default": "auto",
     "bearerTokenVar": "authToken",
@@ -428,7 +446,7 @@ example {
 | Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, same-controller wrapper helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths |
 | Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, `sendStatus()`, and local helper wrappers |
 | Go response inference | Partial | Covers common direct JSON responses plus existing helper-based patterns, but remains heuristic |
-| Watch mode | Supported | Regenerates on `.php`, `.go`, `.js`, `.cjs`, `.mjs`, and `.ts` changes |
+| Watch mode | Supported | Regenerates on configured source globs and ignores common dependency, build, VCS, coverage, and Brunogen output directories by default |
 
 ## Known Limitations
 
