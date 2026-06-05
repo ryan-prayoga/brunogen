@@ -82,7 +82,7 @@ interface HandlerAnalysis {
   warnings: GenerationWarning[];
 }
 
-interface JoiFieldAnalysis {
+interface SchemaFieldAnalysis {
   name: string;
   required: boolean;
   schema: SchemaObject;
@@ -1017,7 +1017,10 @@ export function analyzeExpressHandler(
       "body",
       exampleContext,
     ),
-    inferJoiFieldsForHandler(handlerRecord, reqName, "body", index),
+    [
+      ...inferJoiFieldsForHandler(handlerRecord, reqName, "body", index),
+      ...inferZodFieldsForHandler(handlerRecord, reqName, "body", index),
+    ],
   );
   const queryFields = mergeExpressRequestFields(
     extractObjectFieldsFromRequest(
@@ -1026,7 +1029,10 @@ export function analyzeExpressHandler(
       "query",
       exampleContext,
     ),
-    inferJoiFieldsForHandler(handlerRecord, reqName, "query", index),
+    [
+      ...inferJoiFieldsForHandler(handlerRecord, reqName, "query", index),
+      ...inferZodFieldsForHandler(handlerRecord, reqName, "query", index),
+    ],
   );
 
   return {
@@ -1068,7 +1074,7 @@ function mergeExpressRequestFields(
     required: boolean;
     schema: SchemaObject;
   }>,
-  joiFields: JoiFieldAnalysis[],
+  schemaFields: SchemaFieldAnalysis[],
 ): Array<{ name: string; required: boolean; schema: SchemaObject }> {
   const fields = new Map<
     string,
@@ -1079,7 +1085,7 @@ function mergeExpressRequestFields(
     fields.set(field.name, field);
   }
 
-  for (const field of joiFields) {
+  for (const field of schemaFields) {
     const existing = fields.get(field.name);
     fields.set(field.name, {
       name: field.name,
@@ -1114,7 +1120,7 @@ function inferJoiFieldsForHandler(
   reqName: string,
   target: "body" | "query",
   index: ExpressProjectIndex,
-): JoiFieldAnalysis[] {
+): SchemaFieldAnalysis[] {
   const file = index.files.get(handlerRecord.filePath);
   if (!file) {
     return [];
@@ -1131,7 +1137,7 @@ function inferJoiFieldsForHandler(
     }
   }
 
-  const fields = new Map<string, JoiFieldAnalysis>();
+  const fields = new Map<string, SchemaFieldAnalysis>();
   for (const schemaName of schemaNames) {
     for (const field of extractJoiSchemaFields(file.content, schemaName)) {
       const existing = fields.get(field.name);
@@ -1162,7 +1168,7 @@ function inferJoiFieldsForHandler(
 function extractJoiSchemaFields(
   content: string,
   schemaName: string,
-): JoiFieldAnalysis[] {
+): SchemaFieldAnalysis[] {
   const definitionRegex = new RegExp(
     `(?:export\\s+)?(?:const|let|var)\\s+${escapeRegExp(schemaName)}\\s*=`,
     "g",
@@ -1198,7 +1204,7 @@ function extractInlineJoiSchemaFields(
   body: string,
   reqName: string,
   target: "body" | "query",
-): JoiFieldAnalysis[] {
+): SchemaFieldAnalysis[] {
   const statements = new Set<string>();
   const inlineRegex =
     /[A-Za-z_][A-Za-z0-9_.]*\s*\.\s*object\s*(?:<[\s\S]*?>\s*)?\(/g;
@@ -1225,7 +1231,7 @@ function extractInlineJoiSchemaFields(
     statements.add(statement);
   }
 
-  const fields = new Map<string, JoiFieldAnalysis>();
+  const fields = new Map<string, SchemaFieldAnalysis>();
   for (const statement of statements) {
     for (const field of extractJoiFieldsFromSchemaExpression(statement)) {
       const existing = fields.get(field.name);
@@ -1242,13 +1248,13 @@ function extractInlineJoiSchemaFields(
 
 function extractJoiFieldsFromSchemaExpression(
   expression: string,
-): JoiFieldAnalysis[] {
+): SchemaFieldAnalysis[] {
   const objectBlock = extractJoiObjectBlock(expression);
   if (!objectBlock) {
     return [];
   }
 
-  const fields: JoiFieldAnalysis[] = [];
+  const fields: SchemaFieldAnalysis[] = [];
   for (const entry of splitTopLevel(objectBlock.slice(1, -1), ",")) {
     const property = parseObjectLiteralEntry(entry);
     if (!property) {
@@ -1409,6 +1415,307 @@ function parseJoiFieldExpression(
 
   if (/\.optional\s*\(/.test(trimmed)) {
     required = false;
+  }
+
+  return {
+    required,
+    schema,
+  };
+}
+
+function inferZodFieldsForHandler(
+  handlerRecord: ExpressFunctionRecord,
+  reqName: string,
+  target: "body" | "query",
+  index: ExpressProjectIndex,
+): SchemaFieldAnalysis[] {
+  const file = index.files.get(handlerRecord.filePath);
+  if (!file) {
+    return [];
+  }
+
+  const schemaNames = new Set<string>();
+  const parseRegex = new RegExp(
+    `([A-Za-z_][A-Za-z0-9_]*)\\s*\\.\\s*(?:parse|parseAsync|safeParse|safeParseAsync)\\(\\s*${escapeRegExp(reqName)}\\.${target}\\b`,
+    "g",
+  );
+  for (const match of handlerRecord.body.matchAll(parseRegex)) {
+    if (match[1]) {
+      schemaNames.add(match[1]);
+    }
+  }
+
+  const fields = new Map<string, SchemaFieldAnalysis>();
+  for (const schemaName of schemaNames) {
+    for (const field of extractZodSchemaFields(file.content, schemaName)) {
+      const existing = fields.get(field.name);
+      fields.set(field.name, {
+        name: field.name,
+        required: existing?.required || field.required,
+        schema: mergeSchemaObjects(existing?.schema, field.schema),
+      });
+    }
+  }
+
+  for (const field of extractInlineZodSchemaFields(
+    handlerRecord.body,
+    reqName,
+    target,
+  )) {
+    const existing = fields.get(field.name);
+    fields.set(field.name, {
+      name: field.name,
+      required: existing?.required || field.required,
+      schema: mergeSchemaObjects(existing?.schema, field.schema),
+    });
+  }
+
+  return [...fields.values()];
+}
+
+function extractZodSchemaFields(
+  content: string,
+  schemaName: string,
+): SchemaFieldAnalysis[] {
+  const definitionRegex = new RegExp(
+    `(?:export\\s+)?(?:const|let|var)\\s+${escapeRegExp(schemaName)}\\s*=`,
+    "g",
+  );
+
+  for (const match of content.matchAll(definitionRegex)) {
+    const startIndex = match.index ?? -1;
+    if (startIndex < 0) {
+      continue;
+    }
+
+    const equalsIndex = content.indexOf("=", startIndex);
+    const endIndex =
+      equalsIndex >= 0
+        ? findTopLevelTerminator(content, equalsIndex + 1, [";"])
+        : -1;
+    if (equalsIndex < 0 || endIndex < 0) {
+      continue;
+    }
+
+    const expression = content.slice(equalsIndex + 1, endIndex).trim();
+    const fields = extractZodFieldsFromSchemaExpression(expression);
+
+    if (fields.length > 0) {
+      return fields;
+    }
+  }
+
+  return [];
+}
+
+function extractInlineZodSchemaFields(
+  body: string,
+  reqName: string,
+  target: "body" | "query",
+): SchemaFieldAnalysis[] {
+  const statements = new Set<string>();
+  const inlineRegex = /\bz\s*\.\s*object\s*\(/g;
+  const parseRegex = new RegExp(
+    `\\.\\s*(?:parse|parseAsync|safeParse|safeParseAsync)\\(\\s*${escapeRegExp(reqName)}\\.${target}\\b`,
+  );
+
+  for (const match of body.matchAll(inlineRegex)) {
+    const startIndex = match.index ?? -1;
+    if (startIndex < 0) {
+      continue;
+    }
+
+    const endIndex = findTopLevelTerminator(body, startIndex, [";"]);
+    if (endIndex < 0) {
+      continue;
+    }
+
+    const statement = body.slice(startIndex, endIndex).trim();
+    if (!parseRegex.test(statement)) {
+      continue;
+    }
+
+    statements.add(statement);
+  }
+
+  const fields = new Map<string, SchemaFieldAnalysis>();
+  for (const statement of statements) {
+    for (const field of extractZodFieldsFromSchemaExpression(statement)) {
+      const existing = fields.get(field.name);
+      fields.set(field.name, {
+        name: field.name,
+        required: existing?.required || field.required,
+        schema: mergeSchemaObjects(existing?.schema, field.schema),
+      });
+    }
+  }
+
+  return [...fields.values()];
+}
+
+function extractZodFieldsFromSchemaExpression(
+  expression: string,
+): SchemaFieldAnalysis[] {
+  const objectBlock = extractZodObjectBlock(expression);
+  if (!objectBlock) {
+    return [];
+  }
+
+  const fields: SchemaFieldAnalysis[] = [];
+  for (const entry of splitTopLevel(objectBlock.slice(1, -1), ",")) {
+    const property = parseObjectLiteralEntry(entry);
+    if (!property) {
+      continue;
+    }
+
+    const parsed = parseZodFieldExpression(property.value);
+    if (!parsed) {
+      continue;
+    }
+
+    fields.push({
+      name: property.key,
+      required: parsed.required,
+      schema: parsed.schema,
+    });
+  }
+
+  return fields;
+}
+
+function extractZodObjectBlock(expression: string): string | null {
+  const objectMatch = expression.match(/\bz\s*\.\s*object\s*\(/);
+  if (!objectMatch) {
+    return null;
+  }
+
+  const objectCallIndex = expression.indexOf(objectMatch[0]);
+  const objectOpenParenIndex = expression.indexOf("(", objectCallIndex);
+  const objectArgs =
+    objectOpenParenIndex >= 0
+      ? extractBalanced(expression, objectOpenParenIndex, "(", ")")
+      : null;
+  if (!objectArgs) {
+    return null;
+  }
+
+  const directObject = splitTopLevel(objectArgs.slice(1, -1), ",")[0]?.trim();
+  if (!directObject?.startsWith("{")) {
+    return null;
+  }
+
+  return extractBalanced(directObject, 0, "{", "}");
+}
+
+function parseZodFieldExpression(
+  expression: string,
+): { required: boolean; schema: SchemaObject } | null {
+  const trimmed = expression.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  const schema: SchemaObject = {};
+  let required = true;
+  let baseType: SchemaObject["type"] = "string";
+  const typeMatch = trimmed.match(
+    /\bz\s*\.\s*(?:coerce\s*\.\s*)?(array|boolean|enum|number|object|string)\s*\(/,
+  );
+  if (typeMatch?.[1]) {
+    baseType = typeMatch[1] === "enum"
+      ? "string"
+      : (typeMatch[1] as SchemaObject["type"]);
+  }
+
+  schema.type = baseType;
+
+  if (/\.int\s*\(/.test(trimmed)) {
+    schema.type = "integer";
+  }
+
+  if (/\.email\s*\(/.test(trimmed)) {
+    schema.format = "email";
+  }
+
+  if (/\.uuid\s*\(/.test(trimmed)) {
+    schema.format = "uuid";
+  }
+
+  if (/\.nullable\s*\(|\.nullish\s*\(/.test(trimmed)) {
+    schema.nullable = true;
+  }
+
+  if (/\.optional\s*\(|\.nullish\s*\(/.test(trimmed)) {
+    required = false;
+  }
+
+  const minMatch = trimmed.match(/\.min\(\s*(-?\d+)\s*\)/);
+  if (minMatch?.[1]) {
+    const minValue = Number.parseInt(minMatch[1], 10);
+    if (schema.type === "string") {
+      schema.minLength = minValue;
+    } else {
+      schema.minimum = minValue;
+    }
+  }
+
+  const maxMatch = trimmed.match(/\.max\(\s*(-?\d+)\s*\)/);
+  if (maxMatch?.[1]) {
+    const maxValue = Number.parseInt(maxMatch[1], 10);
+    if (schema.type === "string") {
+      schema.maxLength = maxValue;
+    } else {
+      schema.maximum = maxValue;
+    }
+  }
+
+  const defaultMatch = trimmed.match(/\.default\(\s*([\s\S]+?)\s*\)(?:\.|$)/);
+  if (defaultMatch?.[1]) {
+    schema.default = buildExampleFromJsExpression(defaultMatch[1]);
+    required = false;
+  }
+
+  const enumMatch = trimmed.match(/\bz\s*\.\s*enum\s*\(\s*(\[[\s\S]*?\])\s*\)/);
+  if (enumMatch?.[1]) {
+    const enumValues = buildExampleFromJsExpression(enumMatch[1]);
+    schema.enum = (Array.isArray(enumValues) ? enumValues : []).filter(
+      (value): value is string | number | boolean =>
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean",
+    );
+  }
+
+  if (schema.type === "array") {
+    const arrayOpenParenIndex = trimmed.search(/\bz\s*\.\s*array\s*\(/);
+    const arrayArgs =
+      arrayOpenParenIndex >= 0
+        ? extractBalanced(
+            trimmed,
+            trimmed.indexOf("(", arrayOpenParenIndex),
+            "(",
+            ")",
+          )
+        : null;
+    const itemExpression = arrayArgs
+      ? splitTopLevel(arrayArgs.slice(1, -1), ",")[0]?.trim()
+      : undefined;
+    schema.items = itemExpression
+      ? parseZodFieldExpression(itemExpression)?.schema ?? { type: "string" }
+      : { type: "string" };
+  }
+
+  if (schema.type === "object") {
+    const nestedFields = extractZodFieldsFromSchemaExpression(trimmed);
+    if (nestedFields.length > 0) {
+      schema.properties = Object.fromEntries(
+        nestedFields.map((field) => [field.name, field.schema]),
+      );
+      const requiredFields = nestedFields
+        .filter((field) => field.required)
+        .map((field) => field.name);
+      schema.required = requiredFields.length > 0 ? requiredFields : undefined;
+    }
   }
 
   return {

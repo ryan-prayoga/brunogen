@@ -142,6 +142,9 @@ return sendCreated(res, payload);
 return responseHelpers.sendCreated(res, payload);
 ```
 
+Request schema inference also reads straightforward Joi and Zod object schemas
+when the schema is parsed against `req.body` or `req.query`.
+
 ### Go
 
 Request inference is strongest when handlers use patterns like:
@@ -437,12 +440,12 @@ example {
 | OpenAPI generation | Supported | OpenAPI is the normalized intermediate output |
 | Bruno export | Supported | Collection, requests, environments, baseline auth blocks, and response `example {}` blocks |
 | Express route scanning | Experimental | Handles `express()` / `Router()`, `use()` mounts, and `route()` chains |
-| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; resolves common static import/export router mounts including default, CommonJS, barrel re-export, repeated mount patterns, and statically computed string paths; falls back to the default Express scanner if AST scanning fails |
-| Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers and local response helpers |
+| Express AST scanning | Experimental | Available behind `BRUNOGEN_EXPERIMENTAL_EXPRESS_AST=1`; resolves common static import/export router mounts including default, CommonJS, barrel re-export, repeated mount patterns, local router factory returns, and statically computed string paths; falls back to the default Express scanner if AST scanning fails |
+| Express handler inference | Experimental | Heuristic request and response inference from straightforward handlers, Joi/Zod object schemas, and local response helpers |
 | Go Fiber scanning | Experimental | Route and request inference are heuristic |
 | Go Gin scanning | Experimental | Route and request inference are heuristic |
 | Go Echo scanning | Experimental | Route and request inference are heuristic |
-| Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns |
+| Go request schema inference | Experimental | Works for straightforward bind/body-parser patterns and common validation tags such as `required`, `email`, `uuid`, `min`, `max`, `len`, `gt`, `gte`, `lt`, `lte`, and `oneof` |
 | Laravel response inference | Strong partial | Covers direct arrays, `response()->json(...)`, `noContent()`, same-controller wrapper helpers, `JsonResource`, `->additional(...)`, and common abort/error/not-found paths |
 | Express response inference | Partial | Straightforward `res.json()`, `res.send()`, `res.status(...).json()`, `sendStatus()`, and local helper wrappers |
 | Go response inference | Partial | Covers common direct JSON responses plus existing helper-based patterns, but remains heuristic |
@@ -453,10 +456,10 @@ example {
 - Brunogen is optimized for conventional code, not heavily dynamic or meta-programmed applications.
 - Laravel and the default Express scanner are regex-driven rather than full AST analysis, so unusual declarations can still be missed.
 - Express AST scanning is available as an experimental opt-in path, but it still reuses the default handler inference and should be treated as best-effort.
-- Complex route factories, dynamic imports, non-static computed paths, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
+- Dynamic imports, non-static computed paths, custom router abstractions, and highly dynamic middleware composition may be skipped with warnings.
 - Complex Laravel validation rules, custom rule objects, and conditional validation are only partially inferred.
 - Laravel response inference is strongest for controller-local patterns and common resource usage; cross-class service wrappers and highly dynamic composition are still best-effort.
-- Express request and response inference is strongest for direct `req.body` / `req.query` / `req.headers` access and local `res.*()` helper wrappers.
+- Express request and response inference is strongest for direct `req.body` / `req.query` / `req.headers` access, straightforward Joi/Zod object schemas, and local `res.*()` helper wrappers.
 - Go support is still experimental, especially around indirect helpers, nested wrappers, and custom response builders.
 - Generated Bruno auth gives you a usable starting point, not a complete auth flow engine.
 

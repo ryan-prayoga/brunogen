@@ -787,6 +787,16 @@ function resolveRouterReference(
     }
   }
 
+  const factoryRouterKey = resolveLocalRouterFactoryCall(
+    node,
+    filePath,
+    routers,
+    fileMap,
+  );
+  if (factoryRouterKey) {
+    return factoryRouterKey;
+  }
+
   const targetName = getTargetName(node);
   if (!targetName) {
     return null;
@@ -846,6 +856,90 @@ function resolveRouterReference(
       );
 
   return resolved ? routerKeyForResolvedExport(resolved, fileMap) : null;
+}
+
+function resolveLocalRouterFactoryCall(
+  node: any,
+  filePath: string,
+  routers: RouterRecord[],
+  fileMap: Map<string, ExpressFile>,
+): string | null {
+  if (
+    node?.type !== "CallExpression" ||
+    node.callee?.type !== "Identifier"
+  ) {
+    return null;
+  }
+
+  const file = fileMap.get(filePath);
+  if (!file) {
+    return null;
+  }
+
+  const factoryName = node.callee.name;
+  const returnedRouterName = findReturnedRouterNameFromFactory(
+    file,
+    factoryName,
+  );
+  if (!returnedRouterName) {
+    return null;
+  }
+
+  const localRouter = routers.find(
+    (router) =>
+      router.filePath === filePath && router.name === returnedRouterName,
+  );
+
+  return localRouter?.key ?? null;
+}
+
+function findReturnedRouterNameFromFactory(
+  file: ExpressFile,
+  factoryName: string,
+): string | null {
+  for (const node of walkAst(file.ast)) {
+    const body = getFactoryFunctionBody(node, factoryName);
+    if (!body) {
+      continue;
+    }
+
+    for (const child of walkAst(body)) {
+      if (child.type !== "ReturnStatement") {
+        continue;
+      }
+
+      const returnedName = getTargetName(child.argument);
+      if (returnedName && declaresRouterSymbol(file, returnedName)) {
+        return returnedName;
+      }
+    }
+  }
+
+  return null;
+}
+
+function getFactoryFunctionBody(node: any, factoryName: string): any | null {
+  if (
+    node.type === "FunctionDeclaration" &&
+    node.id?.type === "Identifier" &&
+    node.id.name === factoryName
+  ) {
+    return node.body;
+  }
+
+  if (
+    node.type === "VariableDeclarator" &&
+    node.id?.type === "Identifier" &&
+    node.id.name === factoryName &&
+    (
+      node.init?.type === "FunctionExpression" ||
+      node.init?.type === "ArrowFunctionExpression"
+    )
+  ) {
+    return node.init.body;
+  }
+
+  return null;
 }
 
 interface ResolvedExport {

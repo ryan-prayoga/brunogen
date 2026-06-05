@@ -142,6 +142,45 @@ describe("Express adapter", () => {
     expect(searchCatalog?.responses.map((response) => response.statusCode)).toEqual(expect.arrayContaining(["200", "422"]));
   });
 
+  it("infers Zod-backed request and query schemas for Express handlers", async () => {
+    const artifacts = await generateArtifacts(fixturePath("express-zod-inline"), defaultConfig());
+
+    const createWidget = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/widgets" && endpoint.method === "post");
+    expect(createWidget?.requestBody?.schema.properties?.name?.type).toBe("string");
+    expect(createWidget?.requestBody?.schema.properties?.name?.minLength).toBe(3);
+    expect(createWidget?.requestBody?.schema.properties?.name?.maxLength).toBe(80);
+    expect(createWidget?.requestBody?.schema.properties?.owner_email?.format).toBe("email");
+    expect(createWidget?.requestBody?.schema.properties?.status?.enum).toEqual(["draft", "published"]);
+    expect(createWidget?.requestBody?.schema.properties?.price?.type).toBe("number");
+    expect(createWidget?.requestBody?.schema.properties?.price?.minimum).toBe(1);
+    expect(createWidget?.requestBody?.schema.properties?.price?.maximum).toBe(999);
+    expect(createWidget?.requestBody?.schema.properties?.tags?.type).toBe("array");
+    expect(createWidget?.requestBody?.schema.properties?.metadata?.type).toBe("object");
+    expect(createWidget?.requestBody?.schema.properties?.metadata?.properties?.trace_id?.format).toBe("uuid");
+    expect(createWidget?.requestBody?.schema.properties?.metadata?.properties?.notes?.nullable).toBe(true);
+    expect(createWidget?.requestBody?.schema.required).toEqual(expect.arrayContaining(["name", "owner_email", "status", "price"]));
+    expect(createWidget?.requestBody?.schema.required).not.toContain("tags");
+    expect(createWidget?.requestBody?.schema.required).not.toContain("metadata");
+
+    const searchWidgets = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/widgets/search" && endpoint.method === "get");
+    expect(searchWidgets?.parameters).toContainEqual(expect.objectContaining({
+      in: "query",
+      name: "page",
+      schema: expect.objectContaining({
+        default: 1,
+        minimum: 1,
+        type: "integer",
+      }),
+    }));
+    expect(searchWidgets?.parameters).toContainEqual(expect.objectContaining({
+      in: "query",
+      name: "q",
+      schema: expect.objectContaining({
+        type: "string",
+      }),
+    }));
+  });
+
   it("produces the same mounted routes when the project root is relative", async () => {
     const relativeRoot = path.relative(process.cwd(), fixturePath("express"));
     const artifacts = await generateArtifacts(relativeRoot, defaultConfig());

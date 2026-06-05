@@ -1,0 +1,6 @@
+{
+  "name": "express-ast-router-factory",
+  "dependencies": {
+    "express": "^4.18.0"
+  }
+}

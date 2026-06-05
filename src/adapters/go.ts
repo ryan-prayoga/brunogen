@@ -882,6 +882,11 @@ function applyGoValidationTags(
       case "email":
         nextSchema.format = "email";
         break;
+      case "uuid":
+      case "uuid4":
+      case "uuid5":
+        nextSchema.format = "uuid";
+        break;
       case "min":
         if (nextSchema.type === "string") {
           nextSchema.minLength = parseGoNumericTag(value);
@@ -895,6 +900,25 @@ function applyGoValidationTags(
         } else {
           nextSchema.maximum = parseGoNumericTag(value);
         }
+        break;
+      case "len": {
+        const length = parseGoNumericTag(value);
+        if (nextSchema.type === "string") {
+          nextSchema.minLength = length;
+          nextSchema.maxLength = length;
+        } else {
+          nextSchema.minimum = length;
+          nextSchema.maximum = length;
+        }
+        break;
+      }
+      case "gt":
+      case "gte":
+        nextSchema.minimum = parseGoNumericTag(value);
+        break;
+      case "lt":
+      case "lte":
+        nextSchema.maximum = parseGoNumericTag(value);
         break;
       case "oneof":
         nextSchema.enum = value?.split(/\s+/).filter(Boolean);

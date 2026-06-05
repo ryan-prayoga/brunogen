@@ -134,4 +134,18 @@ describe("Go adapters", () => {
       code: "GO_AUTH_MIDDLEWARE_UNKNOWN",
     }));
   });
+
+  it("infers additional Go validation tags for request schemas", async () => {
+    const artifacts = await generateArtifacts(fixturePath("gin-validation-tags"), defaultConfig());
+
+    const createReport = artifacts.normalized.endpoints.find((endpoint) => endpoint.path === "/api/reports" && endpoint.method === "post");
+    expect(createReport?.requestBody?.schema.properties?.id?.format).toBe("uuid");
+    expect(createReport?.requestBody?.schema.properties?.code?.minLength).toBe(6);
+    expect(createReport?.requestBody?.schema.properties?.code?.maxLength).toBe(6);
+    expect(createReport?.requestBody?.schema.properties?.score?.minimum).toBe(1);
+    expect(createReport?.requestBody?.schema.properties?.score?.maximum).toBe(100);
+    expect(createReport?.requestBody?.schema.properties?.priority?.minimum).toBe(0);
+    expect(createReport?.requestBody?.schema.properties?.priority?.maximum).toBe(5);
+    expect(createReport?.requestBody?.schema.required).toEqual(expect.arrayContaining(["id", "code"]));
+  });
 });

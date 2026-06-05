@@ -100,6 +100,47 @@ describe("Express AST adapter", () => {
     ).toEqual(expect.arrayContaining(["200", "422"]));
   });
 
+  it("infers Zod-backed request and query schemas", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-zod-inline"),
+      "acme/express-zod-inline",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    const createWidget = project.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/widgets" && endpoint.method === "post",
+    );
+    expect(createWidget?.requestBody?.schema.properties?.owner_email?.format).toBe(
+      "email",
+    );
+    expect(createWidget?.requestBody?.schema.properties?.status?.enum).toEqual([
+      "draft",
+      "published",
+    ]);
+    expect(
+      createWidget?.requestBody?.schema.properties?.metadata?.properties
+        ?.trace_id?.format,
+    ).toBe("uuid");
+
+    const searchWidgets = project.endpoints.find(
+      (endpoint) =>
+        endpoint.path === "/api/widgets/search" && endpoint.method === "get",
+    );
+    expect(searchWidgets?.parameters).toContainEqual(
+      expect.objectContaining({
+        in: "query",
+        name: "page",
+        schema: expect.objectContaining({
+          default: 1,
+          minimum: 1,
+          type: "integer",
+        }),
+      }),
+    );
+  });
+
   it("matches absolute-root output when scanning a relative project root", async () => {
     const config = defaultConfig();
     const absoluteRoot = fixturePath("express");
@@ -345,6 +386,40 @@ describe("Express AST adapter", () => {
     expect(project.endpoints).not.toContainEqual(
       expect.objectContaining({
         path: "/users",
+      }),
+    );
+  });
+
+  it("resolves routers returned from local router factories", async () => {
+    const project = await scanExpressProjectAst(
+      fixturePath("express-ast-router-factory"),
+      "acme/express-ast-router-factory",
+      "0.0.0",
+      defaultConfig(),
+    );
+
+    expect(project.endpoints).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          method: "get",
+          path: "/api/reports",
+          operationId: "listReports",
+        }),
+        expect.objectContaining({
+          method: "post",
+          path: "/api/audits",
+          operationId: "listReports",
+        }),
+      ]),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        path: "/reports",
+      }),
+    );
+    expect(project.endpoints).not.toContainEqual(
+      expect.objectContaining({
+        path: "/audits",
       }),
     );
   });
