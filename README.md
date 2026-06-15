@@ -51,6 +51,8 @@ Default output:
 
 - `.brunogen/openapi.yaml`
 - `.brunogen/bruno/`
+- `.brunogen/ai/`
+- `.brunogen/mcp/`
 
 If you are testing from this repository checkout instead of an installed package, run `npm install`, `npm run build`, and `npm link` once from the repository root first.
 
@@ -58,6 +60,8 @@ If you are testing from this repository checkout instead of an installed package
 
 - `openapi.yaml` generated directly from routes, handlers, controllers, and request/response patterns
 - A ready-to-open Bruno collection under `.brunogen/bruno/`
+- AI-ready context under `.brunogen/ai/` (`api-context.md`, `tools.json`, `findings.json`)
+- A generated MCP server under `.brunogen/mcp/`
 - Warnings for patterns Brunogen could not infer confidently
 
 ## Framework Paths
@@ -79,10 +83,12 @@ npm run demo:go
 ## Commands
 
 - `init` creates a starter config in the current directory
-- `generate` scans the current project and writes OpenAPI plus a Bruno collection
+- `generate` scans the current project and writes OpenAPI plus selected output formats
+- `generate --format all` writes Bruno, AI context, and MCP output
 - `watch` regenerates when supported source files change
 - `validate` checks generated OpenAPI output
 - `doctor` shows environment and framework detection details
+- `skill install` installs the bundled `brunogen-api` Grok skill
 
 ## Works Best Today
 
@@ -101,9 +107,34 @@ source code
   -> normalized endpoint model
   -> openapi.yaml
   -> Bruno collection
+  -> AI context
+  -> MCP server
 ```
 
-OpenAPI becomes the internal source of truth after scanning. Bruno is the output target.
+OpenAPI becomes the internal source of truth after scanning. Bruno, AI context, and MCP are output targets.
+
+## Use With AI Agents
+
+After `brunogen generate`, use these files as the API source of truth:
+
+- `.brunogen/ai/api-context.md` for LLM-readable endpoint summaries
+- `.brunogen/ai/tools.json` for function/tool calling shapes
+- `.brunogen/ai/findings.json` for auth and validation findings
+- `.brunogen/mcp/` for Cursor or Claude Desktop MCP integration
+
+Install the bundled Grok skill globally:
+
+```bash
+brunogen skill install
+```
+
+For one API repository only:
+
+```bash
+brunogen skill install --target grok-project
+```
+
+Canonical skill source lives in `skills/brunogen-api/` inside this repository and npm package.
 
 ## Security Roadmap
 

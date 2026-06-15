@@ -1,11 +1,12 @@
 {
   "name": "brunogen",
-  "version": "0.5.1",
-  "description": "Scan Laravel, Express.js, and Go API projects, normalize them into OpenAPI, and emit ready-to-try Bruno collections.",
+  "version": "0.6.0",
+  "description": "Scan Laravel, Express.js, and Go API projects, normalize them into OpenAPI, and emit Bruno, AI context, and MCP server artifacts.",
   "type": "commonjs",
   "main": "./dist/index.js",
   "files": [
     "dist",
+    "skills",
     "README.md",
     "LICENSE"
   ],
@@ -35,7 +36,11 @@
     "gin",
     "fiber",
     "echo",
-    "cli"
+    "cli",
+    "mcp",
+    "ai",
+    "agent",
+    "skill"
   ],
   "author": "Ryan Prayoga",
   "license": "MIT",

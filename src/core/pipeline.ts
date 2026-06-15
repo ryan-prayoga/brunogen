@@ -4,10 +4,19 @@ import { scanExpressProject } from "../adapters/express";
 import { scanExpressProjectAst } from "../adapters/express-ast";
 import { scanLaravelProject } from "../adapters/laravel";
 import { scanGoProject } from "../adapters/go";
+import { writeAiArtifacts } from "./ai-context";
 import { buildOpenApi } from "./openapi";
 import { writeBrunoCollection, writeOpenApiFile } from "./bruno";
+import { writeMcpServer } from "./mcp";
 import { detectFramework } from "./framework";
-import type { BrunogenConfig, GenerateArtifacts, GenerationWarning, NormalizedProject, SupportedFramework } from "./model";
+import type {
+  BrunogenConfig,
+  GenerateArtifacts,
+  GenerationWarning,
+  NormalizedProject,
+  OutputFormat,
+  SupportedFramework,
+} from "./model";
 
 export async function generateArtifacts(root: string, config: BrunogenConfig): Promise<GenerateArtifacts> {
   const detection = await detectFramework(root, config.framework);
@@ -27,14 +36,66 @@ export async function generateArtifacts(root: string, config: BrunogenConfig): P
   };
 }
 
+export interface ArtifactOutputPaths {
+  openApiPath: string;
+  brunoDir: string;
+  aiDir: string;
+  mcpDir: string;
+}
+
+export function resolveOutputFormats(
+  config: BrunogenConfig,
+  cliFormats?: string,
+): OutputFormat[] {
+  if (!cliFormats) {
+    return config.formats;
+  }
+
+  if (cliFormats === "all") {
+    return ["bruno", "ai", "mcp"];
+  }
+
+  const formats = cliFormats
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+
+  const allowed = new Set<OutputFormat>(["bruno", "ai", "mcp"]);
+  const resolved = formats.filter((format): format is OutputFormat =>
+    allowed.has(format as OutputFormat),
+  );
+
+  if (resolved.length === 0) {
+    throw new Error("No valid output formats. Use bruno, ai, mcp, or all.");
+  }
+
+  return [...new Set(resolved)];
+}
+
 export async function writeArtifacts(
   artifacts: GenerateArtifacts,
   config: BrunogenConfig,
-  openApiPath: string,
-  brunoDirectory: string,
+  paths: ArtifactOutputPaths,
+  formats: OutputFormat[] = config.formats,
 ): Promise<void> {
-  await writeOpenApiFile(artifacts.openApi, openApiPath);
-  await writeBrunoCollection(artifacts.openApi, brunoDirectory, config);
+  await writeOpenApiFile(artifacts.openApi, paths.openApiPath);
+
+  if (formats.includes("bruno")) {
+    await writeBrunoCollection(artifacts.openApi, paths.brunoDir, config);
+  }
+
+  if (formats.includes("ai")) {
+    await writeAiArtifacts(
+      artifacts.openApi,
+      paths.aiDir,
+      config,
+      artifacts.warnings,
+    );
+  }
+
+  if (formats.includes("mcp")) {
+    await writeMcpServer(artifacts.openApi, paths.mcpDir, config);
+  }
 }
 
 export async function validateOpenApi(openApi: Record<string, unknown>): Promise<void> {

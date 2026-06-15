@@ -22,8 +22,13 @@ describe("Generation pipeline", () => {
     await writeArtifacts(
       artifacts,
       config,
-      path.join(workspace, config.output.openapiFile),
-      path.join(workspace, config.output.brunoDir),
+      {
+        openApiPath: path.join(workspace, config.output.openapiFile),
+        brunoDir: path.join(workspace, config.output.brunoDir),
+        aiDir: path.join(workspace, config.output.aiDir),
+        mcpDir: path.join(workspace, config.output.mcpDir),
+      },
+      ["bruno"],
     );
     const userRequestFiles = await fs.readdir(path.join(workspace, "out/bruno/user"));
     const projectRequestFiles = await fs.readdir(path.join(workspace, "out/bruno/project"));

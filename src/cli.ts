@@ -16,9 +16,12 @@ import {
   collectOpenApiConsistencyWarnings,
   formatWarnings,
   generateArtifacts,
+  resolveOutputFormats,
   validateOpenApi,
   writeArtifacts,
 } from "./core/pipeline";
+import type { ArtifactOutputPaths } from "./core/pipeline";
+import { installBundledSkill } from "./core/skill";
 
 void main().catch((error) => {
   console.error(formatErrorMessage(error));
@@ -60,11 +63,15 @@ async function main(): Promise<void> {
   program
     .command("generate")
     .description(
-      "Scan the current project and generate OpenAPI plus a Bruno collection.",
+      "Scan the current project and generate OpenAPI plus selected output formats.",
     )
     .option("-c, --config <path>", "path to brunogen config")
-    .action(async (options: { config?: string }) => {
-      await runGenerate(options.config);
+    .option(
+      "-f, --format <formats>",
+      "comma-separated output formats: bruno,ai,mcp,all",
+    )
+    .action(async (options: { config?: string; format?: string }) => {
+      await runGenerate(options.config, options.format);
     });
 
   program
@@ -86,17 +93,16 @@ async function main(): Promise<void> {
           config.output.openapiFile,
           cwd,
         );
-        const brunoDir = resolveFromConfigRoot(
-          configPath,
-          config.output.brunoDir,
-          cwd,
-        );
+        const outputPaths = resolveArtifactOutputPaths(configPath, config, cwd);
+        const formats = resolveOutputFormats(config);
         const { watchPaths, ignored } = resolveWatchGlobs({
           projectRoot,
           config,
           configPath,
           openApiPath,
-          brunoDir,
+          brunoDir: outputPaths.brunoDir,
+          aiDir: outputPaths.aiDir,
+          mcpDir: outputPaths.mcpDir,
         });
 
         let timer: NodeJS.Timeout | undefined;
@@ -107,9 +113,9 @@ async function main(): Promise<void> {
             const validationWarnings = await collectValidationWarnings(
               artifacts.openApi,
             );
-            await writeArtifacts(artifacts, config, openApiPath, brunoDir);
+            await writeArtifacts(artifacts, config, outputPaths, formats);
             console.log(
-              `[${new Date().toISOString()}] generated ${artifacts.normalized.endpoints.length} endpoints`,
+              `[${new Date().toISOString()}] generated ${artifacts.normalized.endpoints.length} endpoints (${formats.join(", ")})`,
             );
             for (const line of [
               ...formatWarnings(artifacts.warnings),
@@ -194,35 +200,58 @@ async function main(): Promise<void> {
       });
     });
 
+  const skill = program
+    .command("skill")
+    .description("Install the bundled brunogen-api agent skill.");
+
+  skill
+    .command("install")
+    .description("Install the brunogen-api skill for Grok.")
+    .option(
+      "--target <target>",
+      "install target: grok-user (default) or grok-project",
+      "grok-user",
+    )
+    .option("-f, --force", "overwrite an existing skill directory")
+    .action(async (options: { target?: string; force?: boolean }) => {
+      await runCommand(async () => {
+        const target = options.target === "grok-project" ? "grok-project" : "grok-user";
+        const result = await installBundledSkill({
+          startDir: path.dirname(__filename),
+          target,
+          projectRoot: process.cwd(),
+          force: options.force,
+        });
+
+        console.log(`Installed brunogen-api skill to ${result.targetDir}`);
+        console.log(`Source: ${result.sourceDir}`);
+        console.log("Grok should reload skills automatically within a few seconds.");
+      });
+    });
+
   program.parse(process.argv);
 }
 
-async function runGenerate(configFile?: string): Promise<void> {
+async function runGenerate(configFile?: string, formatOption?: string): Promise<void> {
   await runCommand(async () => {
     const cwd = process.cwd();
     const { config, configPath } = await loadConfig(cwd, configFile);
     const projectRoot = resolveFromConfigRoot(configPath, config.inputRoot, cwd);
-    const openApiPath = resolveFromConfigRoot(
-      configPath,
-      config.output.openapiFile,
-      cwd,
-    );
-    const brunoDir = resolveFromConfigRoot(
-      configPath,
-      config.output.brunoDir,
-      cwd,
-    );
+    const outputPaths = resolveArtifactOutputPaths(configPath, config, cwd);
+    const formats = resolveOutputFormats(config, formatOption);
     const artifacts = await generateArtifacts(projectRoot, config);
     const validationWarnings = await collectValidationWarnings(
       artifacts.openApi,
     );
-    await writeArtifacts(artifacts, config, openApiPath, brunoDir);
+    await writeArtifacts(artifacts, config, outputPaths, formats);
 
     console.log(
       `Generated ${artifacts.normalized.endpoints.length} endpoints.`,
     );
-    console.log(`OpenAPI: ${openApiPath}`);
-    console.log(`Bruno: ${brunoDir}`);
+    console.log(`OpenAPI: ${outputPaths.openApiPath}`);
+    for (const format of formats) {
+      console.log(`${format}: ${formatOutputPath(format, outputPaths)}`);
+    }
 
     for (const line of [
       ...formatWarnings(artifacts.warnings),
@@ -231,6 +260,49 @@ async function runGenerate(configFile?: string): Promise<void> {
       console.warn(line);
     }
   });
+}
+
+function resolveArtifactOutputPaths(
+  configPath: string | null,
+  config: Awaited<ReturnType<typeof loadConfig>>["config"],
+  cwd: string,
+): ArtifactOutputPaths {
+  return {
+    openApiPath: resolveFromConfigRoot(
+      configPath,
+      config.output.openapiFile,
+      cwd,
+    ),
+    brunoDir: resolveFromConfigRoot(
+      configPath,
+      config.output.brunoDir,
+      cwd,
+    ),
+    aiDir: resolveFromConfigRoot(
+      configPath,
+      config.output.aiDir,
+      cwd,
+    ),
+    mcpDir: resolveFromConfigRoot(
+      configPath,
+      config.output.mcpDir,
+      cwd,
+    ),
+  };
+}
+
+function formatOutputPath(
+  format: "bruno" | "ai" | "mcp",
+  paths: ArtifactOutputPaths,
+): string {
+  switch (format) {
+    case "bruno":
+      return paths.brunoDir;
+    case "ai":
+      return paths.aiDir;
+    case "mcp":
+      return paths.mcpDir;
+  }
 }
 
 async function runCommand(action: () => Promise<void>): Promise<void> {

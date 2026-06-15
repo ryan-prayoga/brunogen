@@ -26,8 +26,13 @@ describe("Go demo snapshots", () => {
       await writeArtifacts(
         artifacts,
         config,
-        path.join(generatedRoot, "openapi.yaml"),
-        path.join(generatedRoot, "bruno"),
+        {
+          openApiPath: path.join(generatedRoot, "openapi.yaml"),
+          brunoDir: path.join(generatedRoot, "bruno"),
+          aiDir: path.join(generatedRoot, "ai"),
+          mcpDir: path.join(generatedRoot, "mcp"),
+        },
+        ["bruno"],
       );
 
       const actualTree = normalizeSnapshot(await renderTree(generatedRoot));

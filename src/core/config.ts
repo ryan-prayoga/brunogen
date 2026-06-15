@@ -14,10 +14,15 @@ const configSchema = z.object({
   output: z.object({
     openapiFile: z.string().default(".brunogen/openapi.yaml"),
     brunoDir: z.string().default(".brunogen/bruno"),
+    aiDir: z.string().default(".brunogen/ai"),
+    mcpDir: z.string().default(".brunogen/mcp"),
   }).default({
     openapiFile: ".brunogen/openapi.yaml",
     brunoDir: ".brunogen/bruno",
+    aiDir: ".brunogen/ai",
+    mcpDir: ".brunogen/mcp",
   }),
+  formats: z.array(z.enum(["bruno", "ai", "mcp"])).default(["bruno", "ai", "mcp"]),
   project: z.object({
     name: z.string().optional(),
     version: z.string().default("1.0.0"),

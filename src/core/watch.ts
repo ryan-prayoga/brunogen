@@ -26,8 +26,10 @@ export function resolveWatchGlobs(input: {
   configPath?: string | null;
   openApiPath: string;
   brunoDir: string;
+  aiDir?: string;
+  mcpDir?: string;
 }): { watchPaths: string[]; ignored: string[] } {
-  const { projectRoot, config, configPath, openApiPath, brunoDir } = input;
+  const { projectRoot, config, configPath, openApiPath, brunoDir, aiDir, mcpDir } = input;
   const watchPaths = config.watch.include.map((pattern) =>
     path.join(projectRoot, pattern),
   );
@@ -40,6 +42,8 @@ export function resolveWatchGlobs(input: {
     ...config.watch.exclude.map((pattern) => path.join(projectRoot, pattern)),
     openApiPath,
     path.join(brunoDir, "**"),
+    ...(aiDir ? [path.join(aiDir, "**")] : []),
+    ...(mcpDir ? [path.join(mcpDir, "**")] : []),
   ];
 
   return { watchPaths, ignored };

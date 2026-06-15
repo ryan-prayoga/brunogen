@@ -62,6 +62,14 @@ function main() {
       existsSync(path.join(projectRoot, ".brunogen", "bruno", "bruno.json")),
       "generate did not write the Bruno collection manifest.",
     );
+    assert(
+      existsSync(path.join(projectRoot, ".brunogen", "ai", "api-context.md")),
+      "generate did not write AI context output.",
+    );
+    assert(
+      existsSync(path.join(projectRoot, ".brunogen", "mcp", "src", "server.js")),
+      "generate did not write MCP server output.",
+    );
 
     const validateOutput = runCli(["validate"], projectRoot);
     assert(

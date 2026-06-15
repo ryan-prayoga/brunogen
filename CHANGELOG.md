@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+## v0.6.0
+
+_Released: 2026-06-15_
+
+- Generate AI-ready artifacts under `.brunogen/ai/` (`api-context.md`, `tools.json`, `findings.json`).
+- Generate a runnable MCP server under `.brunogen/mcp/`.
+- Add `generate --format` with `bruno`, `ai`, `mcp`, and `all` output targets.
+- Bundle and install the `brunogen-api` Grok skill via `brunogen skill install`.
+
 ## v0.5.1
 
 _Released: 2026-06-05_

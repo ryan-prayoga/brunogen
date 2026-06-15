@@ -1,5 +1,7 @@
 export type SupportedFramework = "laravel" | "gin" | "fiber" | "echo" | "express";
 
+export type OutputFormat = "bruno" | "ai" | "mcp";
+
 export type HttpMethod =
   | "get"
   | "post"
@@ -102,7 +104,10 @@ export interface BrunogenConfig {
   output: {
     openapiFile: string;
     brunoDir: string;
+    aiDir: string;
+    mcpDir: string;
   };
+  formats: OutputFormat[];
   project: {
     name?: string;
     version: string;
